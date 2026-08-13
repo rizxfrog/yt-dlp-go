@@ -74,6 +74,11 @@ func Remux(input, output, container, ffmpeg string) error {
 	return Exec(ffmpeg, "-y", "-i", input, "-c", "copy", "-f", container, output)
 }
 
+// renameReplace atomically replaces dst with the contents of src.
+func renameReplace(src, dst string) error {
+	return os.Rename(src, dst)
+}
+
 // MergePP is a PostProcessor that merges a sibling audio file named
 // "<base>.video.<ext>" and "<base>.audio.<ext>" into "<base>.<container>".
 type MergePP struct {
