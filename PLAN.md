@@ -51,7 +51,7 @@ main.go
 | 5 | 后处理器集合 | ✅ 完成 | `go test ./postprocessor/` 通过 | FFmpegExtractAudio/VideoRemux/Metadata(标题/艺术家/日期+缩略图)/EmbedSubtitle/SubtitlesConvertor；参数构建单测（无需 ffmpeg）。core 合并已用，extract-audio/metadata 链入待阶段7 |
 | 6 | 字幕支持 | ✅ 完成 | `go test ./extractor/` 通过 | ParseHLSSubtitles(#EXT-X-MEDIA 解析) + DownloadSubtitle(httptest 单测)；info.Subtitles 结构已就绪 |
 | 7 | 选项与 CLI 扩展 | ✅ 完成 | `go test ./options/` 通过 | 新增 --download-archive/--no-overwrite/--dateafter|before/--playlist-items/--write-subs/--sub-langs/--convert-subs/-x --audio-format/--remux-video/--trim-filenames/--print/--yes\|no-playlist；全部接入 core（print/archive/no-overwrite/extract-audio/remux/subs/trim） |
-| 8 | 播放列表 + 并发 | 🔲 待做 | 合成数据单测 | 列表提取 + 多 URL 并发 + 错误隔离 |
+| 8 | 播放列表 + 并发 | ✅ 完成 | `go test ./core/` 通过 | `Info.Entries []*Info` 承载播放列表；`Download` 分流到 `downloadPlaylist`（按 `--playlist-items` 过滤、`--no-playlist` 仅取首条、单条失败不中断）；新增 `DownloadURLs` 多 URL goroutine 并发 + 错误隔离；新增 `extractor.ExtractURL` 供列表提取器复用；日志走 `printMu` 互斥避免并发交错；main 改为调用 `DownloadURLs`。单测：Playlist / PlaylistItems(1,3) / Concurrency(错误隔离) 全绿 |
 | 9 | 更多提取器 | 🔲 待做 | 结构/解析单测 | Bilibili / TikTok / YouTube 增强 |
 | 10 | TLS 伪装（utls） | 🔲 待做（可选） | 编译 + 真实请求抽查 | 替换 header-only 伪装 |
 | 11 | 测试/修复/集成/文档 | 🔲 待做 | `go test ./...` + README/PLAN 更新 | 收尾提交 |

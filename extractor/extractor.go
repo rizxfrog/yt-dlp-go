@@ -53,6 +53,10 @@ type Info struct {
 	Formats      []Format
 	Subtitles    map[string][]Subtitle
 	IsLive       bool
+	// Entries holds the child Info objects when this result is a playlist /
+	// channel / feed. A non-nil, non-empty Entries slice marks the result as a
+	// playlist that the core should iterate instead of downloading this node.
+	Entries []*Info
 	// Raw is the original JSON object for debugging / advanced access.
 	Raw map[string]any
 }
@@ -98,6 +102,16 @@ func MatchURL(u string) Extractor {
 		}
 	}
 	return nil
+}
+
+// ExtractURL resolves a URL to its matching extractor and runs extraction.
+// Playlist extractors use this to fetch each child entry's full Info.
+func ExtractURL(ctx *Context, url string) (*Info, error) {
+	ie := MatchURL(url)
+	if ie == nil {
+		return nil, fmt.Errorf("no extractor found for %q", url)
+	}
+	return ie.Extract(ctx, url)
 }
 
 // ---- network helpers ----

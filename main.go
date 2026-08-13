@@ -41,14 +41,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	hadError := false
-	for _, u := range urls {
-		if err := ydl.Download(u); err != nil {
-			hadError = true
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	errs := ydl.DownloadURLs(urls)
+	if len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "error: %v\n", e)
 		}
-	}
-	if hadError {
 		os.Exit(1)
 	}
 }

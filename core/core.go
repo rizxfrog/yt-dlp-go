@@ -10,10 +10,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"yt-dlp-go/downloader"
 	"yt-dlp-go/extractor"
@@ -26,6 +28,22 @@ import (
 	"yt-dlp-go/output"
 	"yt-dlp-go/postprocessor"
 )
+
+// printMu serialises log writes so concurrent downloads don't interleave their
+// status lines on stdout/stderr.
+var printMu sync.Mutex
+
+func logPrintf(w io.Writer, format string, args ...any) {
+	printMu.Lock()
+	defer printMu.Unlock()
+	fmt.Fprintf(w, format, args...)
+}
+
+func logPrintln(w io.Writer, s string) {
+	printMu.Lock()
+	defer printMu.Unlock()
+	fmt.Fprintln(w, s)
+}
 
 // YoutubeDL is the top-level coordinator.
 type YoutubeDL struct {
@@ -43,48 +61,110 @@ func New(opts *options.Options) (*YoutubeDL, error) {
 	return &YoutubeDL{Opts: opts, Client: client}, nil
 }
 
-// Download runs the full pipeline for a single URL.
+// Download runs the full pipeline for a single URL. If the URL resolves to a
+// playlist (an Info with populated Entries), every item is processed in order
+// while honouring --playlist-items / --no-playlist.
 func (y *YoutubeDL) Download(rawURL string) error {
-	// --print: render a single field and exit.
-	if y.Opts.PrintField != "" {
-		info, err := y.extract(rawURL)
-		if err != nil {
-			return err
-		}
-		s, err := output.Render(y.Opts.PrintField, info)
-		if err != nil {
-			return err
-		}
-		fmt.Println(s)
-		return nil
-	}
-
-	// Simulate / dump-json.
-	if y.Opts.Simulate || y.Opts.PrintToStdout != "" {
-		info, err := y.extract(rawURL)
-		if err != nil {
-			return err
-		}
-		if y.Opts.PrintToStdout != "" {
-			b, _ := json.MarshalIndent(info, "", "  ")
-			fmt.Println(string(b))
-		} else {
-			fmt.Printf("[simulate] %s (%d formats)\n", info.Title, len(info.Formats))
-		}
-		return nil
-	}
-
 	info, err := y.extract(rawURL)
 	if err != nil {
 		return err
 	}
+	if len(info.Entries) > 0 {
+		if y.Opts.NoPlaylist {
+			// Download only the first entry, matching yt-dlp's --no-playlist.
+			if len(info.Entries) > 0 && info.Entries[0] != nil {
+				return y.processInfo(info.Entries[0])
+			}
+			return nil
+		}
+		return y.downloadPlaylist(info)
+	}
+	return y.processInfo(info)
+}
+
+// DownloadURLs runs the pipeline for multiple URLs concurrently. A failure on
+// one URL is reported but does not abort the others (error isolation). It
+// returns the slice of errors (empty when every URL succeeded).
+func (y *YoutubeDL) DownloadURLs(urls []string) []error {
+	errs := make([]error, len(urls))
+	var wg sync.WaitGroup
+	for i, u := range urls {
+		wg.Add(1)
+		go func(i int, u string) {
+			defer wg.Done()
+			if e := y.Download(u); e != nil {
+				errs[i] = e
+			}
+		}(i, u)
+	}
+	wg.Wait()
+
+	out := make([]error, 0, len(urls))
+	for _, e := range errs {
+		if e != nil {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// downloadPlaylist iterates the playlist entries, applying --playlist-items and
+// isolating per-item errors (one bad item does not stop the rest).
+func (y *YoutubeDL) downloadPlaylist(pl *extractor.Info) error {
+	var firstErr error
+	idx := 0
+	for _, entry := range pl.Entries {
+		if entry == nil {
+			continue
+		}
+		idx++
+		if !y.Opts.WantsPlaylistItem(idx) {
+			continue
+		}
+		if err := y.processInfo(entry); err != nil {
+			logPrintf(os.Stderr, "[error] playlist item %d (%s): %v\n", idx, entry.Title, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			// error isolation: keep going through the remaining items.
+		}
+	}
+	return firstErr
+}
+
+// processInfo runs the download + postprocess pipeline for one already-extracted
+// Info (a single video or a playlist entry).
+func (y *YoutubeDL) processInfo(info *extractor.Info) error {
+	// --print: render a single field and exit.
+	if y.Opts.PrintField != "" {
+		s, err := output.Render(y.Opts.PrintField, info)
+		if err != nil {
+			return err
+		}
+		logPrintln(os.Stdout, s)
+		return nil
+	}
+
+	// dump-json.
+	if y.Opts.PrintToStdout != "" {
+		b, _ := json.MarshalIndent(info, "", "  ")
+		logPrintln(os.Stdout, string(b))
+		return nil
+	}
+
+	// Simulate / skip-download.
+	if y.Opts.Simulate || y.Opts.SkipDownload {
+		logPrintf(os.Stdout, "[simulate] %s (%d formats)\n", info.Title, len(info.Formats))
+		return nil
+	}
+
 	if y.Opts.Verbose {
-		fmt.Printf("[info] title=%q id=%s formats=%d\n", info.Title, info.ID, len(info.Formats))
+		logPrintf(os.Stdout, "[info] title=%q id=%s formats=%d\n", info.Title, info.ID, len(info.Formats))
 	}
 
 	// --download-archive: skip already-recorded IDs.
 	if y.Opts.DownloadArchive != "" && archiveHas(y.Opts.DownloadArchive, info.ID) {
-		fmt.Printf("[download] %s already in archive, skipping\n", info.ID)
+		logPrintf(os.Stdout, "[download] %s already in archive, skipping\n", info.ID)
 		return nil
 	}
 
@@ -101,7 +181,7 @@ func (y *YoutubeDL) Download(rawURL string) error {
 	for _, group := range groups {
 		final := groupFinalPath(base, group, y.Opts)
 		if y.Opts.NoOverwrites && fileExists(final) {
-			fmt.Printf("[download] %s exists, skipping (--no-overwrite)\n", final)
+			logPrintf(os.Stdout, "[download] %s exists, skipping (--no-overwrite)\n", final)
 			continue
 		}
 		videoPath, audioPath := y.downloadGroup(group, base)
@@ -119,14 +199,14 @@ func (y *YoutubeDL) Download(rawURL string) error {
 				}
 				final = fmt.Sprintf("%s.%s", base, container)
 				if merr := postprocessor.Merge(videoPath, audioPath, final, container, ff); merr == nil {
-					fmt.Printf("[postprocess] merged -> %s\n", final)
+					logPrintf(os.Stdout, "[postprocess] merged -> %s\n", final)
 					_ = os.Remove(videoPath)
 					_ = os.Remove(audioPath)
 				} else if y.Opts.Verbose {
-					fmt.Printf("[warn] merge failed: %v\n", merr)
+					logPrintf(os.Stderr, "[warn] merge failed: %v\n", merr)
 				}
 			} else if y.Opts.Verbose {
-				fmt.Printf("[warn] %v\n", ferr)
+				logPrintf(os.Stderr, "[warn] %v\n", ferr)
 			}
 		} else if videoPath != "" {
 			final = videoPath
@@ -139,10 +219,10 @@ func (y *YoutubeDL) Download(rawURL string) error {
 			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
 				pp := postprocessor.FFmpegVideoRemux{FFmpeg: ff, RemuxFormat: y.Opts.RemuxVideo}
 				if out, rerr := pp.Process(final, y.Opts); rerr == nil {
-					fmt.Printf("[postprocess] remuxed -> %s\n", out)
+					logPrintf(os.Stdout, "[postprocess] remuxed -> %s\n", out)
 					final = out
 				} else if y.Opts.Verbose {
-					fmt.Printf("[warn] remux failed: %v\n", rerr)
+					logPrintf(os.Stderr, "[warn] remux failed: %v\n", rerr)
 				}
 			}
 		}
@@ -152,10 +232,10 @@ func (y *YoutubeDL) Download(rawURL string) error {
 			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
 				pp := postprocessor.FFmpegExtractAudio{FFmpeg: ff, AudioFormat: y.Opts.AudioFormat, AudioQuality: y.Opts.AudioQuality}
 				if out, aerr := pp.Process(final, y.Opts); aerr == nil {
-					fmt.Printf("[postprocess] audio -> %s\n", out)
+					logPrintf(os.Stdout, "[postprocess] audio -> %s\n", out)
 					final = out
 				} else if y.Opts.Verbose {
-					fmt.Printf("[warn] audio extract failed: %v\n", aerr)
+					logPrintf(os.Stderr, "[warn] audio extract failed: %v\n", aerr)
 				}
 			}
 		}
@@ -193,10 +273,10 @@ func (y *YoutubeDL) downloadGroup(group []extractor.Format, base string) (videoP
 		}
 		path := outPath(base, kind, f.Ext)
 		if err := y.downloadFormat(f.URL, f, path); err != nil {
-			fmt.Fprintf(os.Stderr, "[warn] downloading %s: %v\n", f.FormatID, err)
+			logPrintf(os.Stderr, "[warn] downloading %s: %v\n", f.FormatID, err)
 			continue
 		}
-		fmt.Printf("[download] %s -> %s\n", f.FormatID, path)
+		logPrintf(os.Stdout, "[download] %s -> %s\n", f.FormatID, path)
 		switch kind {
 		case "video":
 			videoPath = path
@@ -262,7 +342,7 @@ func (y *YoutubeDL) writeSubtitles(info *extractor.Info, base string) {
 			dst, derr := extractor.DownloadSubtitle(context.Background(), y.Client, ref, dir, name)
 			if derr != nil {
 				if y.Opts.Verbose {
-					fmt.Printf("[warn] subtitle %s: %v\n", lang, derr)
+					logPrintf(os.Stderr, "[warn] subtitle %s: %v\n", lang, derr)
 				}
 				continue
 			}
@@ -275,7 +355,7 @@ func (y *YoutubeDL) writeSubtitles(info *extractor.Info, base string) {
 					}
 				}
 			}
-			fmt.Printf("[subtitle] %s -> %s\n", lang, dst)
+			logPrintf(os.Stdout, "[subtitle] %s -> %s\n", lang, dst)
 		}
 	}
 }
