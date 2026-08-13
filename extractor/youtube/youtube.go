@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"yt-dlp-go/extractor"
@@ -70,7 +71,11 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 		Title:      title,
 		WebpageURL: pageURL,
 		Ext:        "mp4",
+		Subtitles:  extractSubtitles(player),
 		Raw:        player,
+	}
+	if d, e := strconv.ParseFloat(lengthStr, 64); e == nil {
+		info.Duration = d
 	}
 
 	var streaming any
@@ -127,8 +132,33 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 	if len(info.Formats) == 0 {
 		return nil, fmt.Errorf("no resolvable formats found")
 	}
-	_ = lengthStr
 	return info, nil
+}
+
+// extractSubtitles pulls the caption tracks from the player response so they can
+// be downloaded by the core pipeline (--write-subs). YouTube serves each track's
+// XML/TTML via its baseUrl.
+func extractSubtitles(player map[string]any) map[string][]extractor.Subtitle {
+	subs := map[string][]extractor.Subtitle{}
+	tracks := extractor.TraverseObj(player, "captions", "playerCaptionsTracklistRenderer", "captionTracks")
+	arr, ok := tracks.([]any)
+	if !ok {
+		return subs
+	}
+	for _, tr := range arr {
+		m, ok := tr.(map[string]any)
+		if !ok {
+			continue
+		}
+		lang := extractor.StrOrNone(m["languageCode"])
+		baseURL := extractor.StrOrNone(m["baseUrl"])
+		if lang == "" || baseURL == "" {
+			continue
+		}
+		name := extractor.StrOrNone(extractor.TraverseObj(m, "name", "simpleText"))
+		subs[lang] = append(subs[lang], extractor.Subtitle{URL: baseURL, Ext: "xml", Name: name})
+	}
+	return subs
 }
 
 // buildFormat turns a single streamingData format object into a Format.

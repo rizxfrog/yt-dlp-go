@@ -96,7 +96,7 @@ func classify(body string) string {
 	switch {
 	case strings.Contains(b, ".reverse()"):
 		return "reverse"
-	case strings.Contains(b, ".splice("):
+	case strings.Contains(b, ".splice(") || strings.Contains(b, ".slice("):
 		return "slice"
 	case strings.Contains(b, "=a[0]") || strings.Contains(b, "=a[b") || strings.Contains(b, "[0]="):
 		return "swap"

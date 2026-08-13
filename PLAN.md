@@ -52,7 +52,7 @@ main.go
 | 6 | 字幕支持 | ✅ 完成 | `go test ./extractor/` 通过 | ParseHLSSubtitles(#EXT-X-MEDIA 解析) + DownloadSubtitle(httptest 单测)；info.Subtitles 结构已就绪 |
 | 7 | 选项与 CLI 扩展 | ✅ 完成 | `go test ./options/` 通过 | 新增 --download-archive/--no-overwrite/--dateafter|before/--playlist-items/--write-subs/--sub-langs/--convert-subs/-x --audio-format/--remux-video/--trim-filenames/--print/--yes\|no-playlist；全部接入 core（print/archive/no-overwrite/extract-audio/remux/subs/trim） |
 | 8 | 播放列表 + 并发 | ✅ 完成 | `go test ./core/` 通过 | `Info.Entries []*Info` 承载播放列表；`Download` 分流到 `downloadPlaylist`（按 `--playlist-items` 过滤、`--no-playlist` 仅取首条、单条失败不中断）；新增 `DownloadURLs` 多 URL goroutine 并发 + 错误隔离；新增 `extractor.ExtractURL` 供列表提取器复用；日志走 `printMu` 互斥避免并发交错；main 改为调用 `DownloadURLs`。单测：Playlist / PlaylistItems(1,3) / Concurrency(错误隔离) 全绿 |
-| 9 | 更多提取器 | 🔲 待做 | 结构/解析单测 | Bilibili / TikTok / YouTube 增强 |
+| 9 | 更多提取器 | ✅ 完成 | `go test ./extractor/...` 通过 | 新增 `extractor/bilibili`（解析 `window.__INITIAL_STATE__` 元数据 + 纯 Go 实现 WBI 签名 `wbiSign`/playurl DASH/durl 解析，均已单测）、`extractor/tiktok`（og:video meta + `__NEXT_DATA__` 两种形态解析，均已单测）；YouTube 增强：提取 `captionTracks` 字幕（`extractSubtitles`）+ 正确解析时长，单测覆盖字幕与签名求值；classify 增加 `.slice(` 识别；新提取器已注册进 core |
 | 10 | TLS 伪装（utls） | 🔲 待做（可选） | 编译 + 真实请求抽查 | 替换 header-only 伪装 |
 | 11 | 测试/修复/集成/文档 | 🔲 待做 | `go test ./...` + README/PLAN 更新 | 收尾提交 |
 
