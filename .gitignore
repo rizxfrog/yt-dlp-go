@@ -1,0 +1,25 @@
+# Build artifacts
+/yt-dlp-go
+/yt-dlp-go.exe
+/dist/
+*.exe
+*.out
+
+# Test / coverage output
+*.test
+coverage.out
+coverage.html
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local env / secrets
+.env
+*.local
