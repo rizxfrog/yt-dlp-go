@@ -47,7 +47,7 @@ main.go
 | 1 | 格式选择引擎 `-f` | ✅ 完成 | `go test ./format/` 通过 | best/worst/+ 合并// 回退/[filter]；已接入 core（替换原 selectFormats） |
 | 2 | 输出模板引擎 `-o` | ✅ 完成 | `go test ./output/` 通过 | `%(field)s`/默认`|`/大小写`u l`/日期`>strftime`/duration/raw 路径/`%%`；已接入 core.outputBase |
 | 3 | DASH 原生下载器 | ✅ 完成 | `go test ./downloader/` 通过 | MPD 解析（SegmentTemplate/Base/List）+ 并发分片下载；已接入 FragmentDownloader（按 .mpd 分发） |
-| 4 | 下载器健壮性 | 🔲 待做 | httptest 单测 | 断点续传 / 限速 / 退避重试 / 进度 |
+| 4 | 下载器健壮性 | ✅ 完成 | `go test ./downloader/` 通过 | HTTP 续传(Range+`.part`原子重命名)/限速/指数退避重试/进度；httptest 覆盖基础/续传/503重试/404不重试/限速解析 |
 | 5 | 后处理器集合 | 🔲 待做 | 参数构建单测 | 提取音频/重封装/元数据/字幕嵌入/转换 |
 | 6 | 字幕支持 | 🔲 待做 | 解析单测 | 结构 + 下载 + 转换 |
 | 7 | 选项与 CLI 扩展 | 🔲 待做 | 解析单测 | archive / 日期过滤 / 播放列表项 / 不覆盖 |

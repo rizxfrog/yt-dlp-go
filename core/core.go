@@ -146,6 +146,7 @@ func (y *YoutubeDL) downloadFormat(refURL string, f extractor.Format, path strin
 		Headers:             y.Opts.AddHeaders,
 		Retries:             y.Opts.Retries,
 		ConcurrentFragments: y.Opts.ConcurrentFragments,
+		RateLimit:           y.Opts.LimitRate,
 		Format:              f,
 	}
 	return dl.Download(context.Background(), f.URL, path, dopts)
