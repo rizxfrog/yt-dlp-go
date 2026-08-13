@@ -9,6 +9,7 @@ package options
 import (
 	"flag"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,6 +42,31 @@ type Options struct {
 	ConcurrentFragments int  // --concurrent-fragments
 	SkipDownload        bool // --skip-download
 	Simulate            bool // --simulate / -s
+	NoOverwrites        bool // --no-overwrite
+	Continue            bool // --continue (resume; on by default)
+	DownloadArchive     string // --download-archive FILE
+	PlaylistItems       string // --playlist-items 1-5,8
+	NoPlaylist          bool   // --no-playlist
+	YesPlaylist         bool   // --yes-playlist
+
+	// Date filtering
+	DateAfter  string // --dateafter YYYYMMDD
+	DateBefore string // --datebefore YYYYMMDD
+
+	// Subtitles
+	WriteSubs    bool   // --write-subs
+	WriteAutoSubs bool  // --write-auto-subs
+	SubLangs     string // --sub-langs en,zh-Hans
+	ConvertSubs  string // --convert-subs srt
+
+	// Post-processing
+	ExtractAudio bool   // -x / --extract-audio
+	AudioFormat  string // --audio-format (mp3/aac/m4a/opus/flac/wav)
+	AudioQuality string // --audio-quality (320 / 5)
+	RemuxVideo   string // --remux-video (mp4/mkv)
+	TrimFilenames int    // --trim-filenames N
+	NoColors     bool    // --no-colors
+	PrintField   string  // --print %(field)s
 
 	// Post / output controls
 	FFmpegLocation string // --ffmpeg-location
@@ -115,11 +141,33 @@ func Parse(args []string) (*Options, []string, error) {
 	fs.BoolVar(&o.SkipDownload, "skip-download", false, "do not download the video")
 	fs.BoolVar(&o.Simulate, "simulate", false, "do not download, only simulate")
 	fs.BoolVar(&o.Simulate, "s", false, "alias of --simulate")
+	fs.BoolVar(&o.NoOverwrites, "no-overwrite", false, "skip files that already exist")
+	fs.BoolVar(&o.NoOverwrites, "no-overwrites", false, "alias of --no-overwrite")
+	fs.BoolVar(&o.Continue, "continue", true, "resume partially downloaded files (default on)")
+	fs.StringVar(&o.DownloadArchive, "download-archive", "", "record downloaded IDs to skip them later")
+	fs.StringVar(&o.PlaylistItems, "playlist-items", "", "items to download, e.g. 1-5,8")
+	fs.BoolVar(&o.NoPlaylist, "no-playlist", false, "do not download playlists")
+	fs.BoolVar(&o.YesPlaylist, "yes-playlist", false, "download playlists even for single videos")
+	fs.StringVar(&o.DateAfter, "dateafter", "", "only videos uploaded on/after YYYYMMDD")
+	fs.StringVar(&o.DateBefore, "datebefore", "", "only videos uploaded on/before YYYYMMDD")
 
 	fs.StringVar(&o.FFmpegLocation, "ffmpeg-location", "", "path to ffmpeg/ffprobe binary")
 	fs.BoolVar(&o.WriteInfoJSON, "write-info-json", false, "write the info JSON to disk")
 	fs.StringVar(&o.PrintToStdout, "j", "", "dump info JSON to stdout")
 	fs.StringVar(&o.PrintToStdout, "dump-json", "", "alias of -j")
+	fs.BoolVar(&o.WriteSubs, "write-subs", false, "write subtitle files")
+	fs.BoolVar(&o.WriteSubs, "w", false, "alias of --write-subs")
+	fs.BoolVar(&o.WriteAutoSubs, "write-auto-subs", false, "write auto-generated subtitles")
+	fs.StringVar(&o.SubLangs, "sub-langs", "", "languages of subs to download (en,zh-Hans,all)")
+	fs.StringVar(&o.ConvertSubs, "convert-subs", "", "convert subtitles to this format (srt/vtt/ass)")
+	fs.BoolVar(&o.ExtractAudio, "extract-audio", false, "extract audio track only")
+	fs.BoolVar(&o.ExtractAudio, "x", false, "alias of --extract-audio")
+	fs.StringVar(&o.AudioFormat, "audio-format", "best", "audio format for -x (mp3/aac/m4a/opus/flac/wav)")
+	fs.StringVar(&o.AudioQuality, "audio-quality", "", "audio quality for -x (e.g. 320 or 5)")
+	fs.StringVar(&o.RemuxVideo, "remux-video", "", "remux video into this container (mp4/mkv)")
+	fs.IntVar(&o.TrimFilenames, "trim-filenames", 0, "limit filenames to N characters")
+	fs.BoolVar(&o.NoColors, "no-colors", false, "disable ANSI colors in output")
+	fs.StringVar(&o.PrintField, "print", "", "print a template field, e.g. %(title)s")
 
 	fs.BoolVar(&o.Verbose, "v", false, "verbose logging")
 	fs.BoolVar(&o.Verbose, "verbose", false, "alias of -v")
@@ -151,4 +199,64 @@ func (o *Options) ImpersonateTarget() string {
 	default:
 		return ""
 	}
+}
+
+// InDateRange reports whether uploadDate (YYYYMMDD) satisfies --dateafter /
+// --datebefore constraints. Empty constraints are ignored.
+func (o *Options) InDateRange(uploadDate string) bool {
+	if len(uploadDate) < 8 {
+		return true
+	}
+	if o.DateAfter != "" && uploadDate < o.DateAfter {
+		return false
+	}
+	if o.DateBefore != "" && uploadDate > o.DateBefore {
+		return false
+	}
+	return true
+}
+
+// playlistSet parses a --playlist-items spec like "1-5,8,10-12" into a set of
+// 1-based indices.
+func playlistSet(spec string) (map[int]bool, error) {
+	set := map[int]bool{}
+	if spec == "" {
+		return set, nil
+	}
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if dash := strings.Index(part, "-"); dash > 0 {
+			lo, err1 := strconv.Atoi(strings.TrimSpace(part[:dash]))
+			hi, err2 := strconv.Atoi(strings.TrimSpace(part[dash+1:]))
+			if err1 != nil || err2 != nil {
+				return nil, fmt.Errorf("invalid playlist range %q", part)
+			}
+			for i := lo; i <= hi; i++ {
+				set[i] = true
+			}
+		} else {
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid playlist item %q", part)
+			}
+			set[n] = true
+		}
+	}
+	return set, nil
+}
+
+// WantsPlaylistItem reports whether the 1-based index should be downloaded given
+// --playlist-items. An empty spec means "all".
+func (o *Options) WantsPlaylistItem(index int) bool {
+	if o.PlaylistItems == "" {
+		return true
+	}
+	set, err := playlistSet(o.PlaylistItems)
+	if err != nil {
+		return true
+	}
+	return set[index]
 }

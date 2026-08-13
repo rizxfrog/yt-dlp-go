@@ -50,7 +50,7 @@ main.go
 | 4 | 下载器健壮性 | ✅ 完成 | `go test ./downloader/` 通过 | HTTP 续传(Range+`.part`原子重命名)/限速/指数退避重试/进度；httptest 覆盖基础/续传/503重试/404不重试/限速解析 |
 | 5 | 后处理器集合 | ✅ 完成 | `go test ./postprocessor/` 通过 | FFmpegExtractAudio/VideoRemux/Metadata(标题/艺术家/日期+缩略图)/EmbedSubtitle/SubtitlesConvertor；参数构建单测（无需 ffmpeg）。core 合并已用，extract-audio/metadata 链入待阶段7 |
 | 6 | 字幕支持 | ✅ 完成 | `go test ./extractor/` 通过 | ParseHLSSubtitles(#EXT-X-MEDIA 解析) + DownloadSubtitle(httptest 单测)；info.Subtitles 结构已就绪 |
-| 7 | 选项与 CLI 扩展 | 🔲 待做 | 解析单测 | archive / 日期过滤 / 播放列表项 / 不覆盖 |
+| 7 | 选项与 CLI 扩展 | ✅ 完成 | `go test ./options/` 通过 | 新增 --download-archive/--no-overwrite/--dateafter|before/--playlist-items/--write-subs/--sub-langs/--convert-subs/-x --audio-format/--remux-video/--trim-filenames/--print/--yes\|no-playlist；全部接入 core（print/archive/no-overwrite/extract-audio/remux/subs/trim） |
 | 8 | 播放列表 + 并发 | 🔲 待做 | 合成数据单测 | 列表提取 + 多 URL 并发 + 错误隔离 |
 | 9 | 更多提取器 | 🔲 待做 | 结构/解析单测 | Bilibili / TikTok / YouTube 增强 |
 | 10 | TLS 伪装（utls） | 🔲 待做（可选） | 编译 + 真实请求抽查 | 替换 header-only 伪装 |

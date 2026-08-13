@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"yt-dlp-go/downloader"
 	"yt-dlp-go/extractor"
@@ -44,6 +45,21 @@ func New(opts *options.Options) (*YoutubeDL, error) {
 
 // Download runs the full pipeline for a single URL.
 func (y *YoutubeDL) Download(rawURL string) error {
+	// --print: render a single field and exit.
+	if y.Opts.PrintField != "" {
+		info, err := y.extract(rawURL)
+		if err != nil {
+			return err
+		}
+		s, err := output.Render(y.Opts.PrintField, info)
+		if err != nil {
+			return err
+		}
+		fmt.Println(s)
+		return nil
+	}
+
+	// Simulate / dump-json.
 	if y.Opts.Simulate || y.Opts.PrintToStdout != "" {
 		info, err := y.extract(rawURL)
 		if err != nil {
@@ -66,34 +82,31 @@ func (y *YoutubeDL) Download(rawURL string) error {
 		fmt.Printf("[info] title=%q id=%s formats=%d\n", info.Title, info.ID, len(info.Formats))
 	}
 
+	// --download-archive: skip already-recorded IDs.
+	if y.Opts.DownloadArchive != "" && archiveHas(y.Opts.DownloadArchive, info.ID) {
+		fmt.Printf("[download] %s already in archive, skipping\n", info.ID)
+		return nil
+	}
+
 	groups, err := format.Select(info.Formats, y.Opts.Format)
 	if err != nil {
 		return err
 	}
 
 	base := y.outputBase(info)
+	if y.Opts.TrimFilenames > 0 {
+		base = trimPath(base, y.Opts.TrimFilenames)
+	}
+
 	for _, group := range groups {
-		var videoPath, audioPath string
-		for _, f := range group {
-			kind := ""
-			if len(group) > 1 {
-				if f.ACodec != "" && f.VCodec == "" {
-					kind = "audio"
-				} else if f.VCodec != "" {
-					kind = "video"
-				}
-			}
-			path := outPath(base, kind, f.Ext)
-			if err := y.downloadFormat(rawURL, f, path); err != nil {
-				return fmt.Errorf("downloading format %s: %w", f.FormatID, err)
-			}
-			fmt.Printf("[download] %s -> %s\n", f.FormatID, path)
-			switch kind {
-			case "video":
-				videoPath = path
-			case "audio":
-				audioPath = path
-			}
+		final := groupFinalPath(base, group, y.Opts)
+		if y.Opts.NoOverwrites && fileExists(final) {
+			fmt.Printf("[download] %s exists, skipping (--no-overwrite)\n", final)
+			continue
+		}
+		videoPath, audioPath := y.downloadGroup(group, base)
+		if videoPath == "" && audioPath == "" {
+			continue
 		}
 
 		// Merge separate video+audio streams into one container via ffmpeg.
@@ -104,7 +117,7 @@ func (y *YoutubeDL) Download(rawURL string) error {
 				if container == "" {
 					container = "mkv"
 				}
-				final := fmt.Sprintf("%s.%s", base, container)
+				final = fmt.Sprintf("%s.%s", base, container)
 				if merr := postprocessor.Merge(videoPath, audioPath, final, container, ff); merr == nil {
 					fmt.Printf("[postprocess] merged -> %s\n", final)
 					_ = os.Remove(videoPath)
@@ -115,14 +128,202 @@ func (y *YoutubeDL) Download(rawURL string) error {
 			} else if y.Opts.Verbose {
 				fmt.Printf("[warn] %v\n", ferr)
 			}
+		} else if videoPath != "" {
+			final = videoPath
+		} else {
+			final = audioPath
+		}
+
+		// --remux-video
+		if y.Opts.RemuxVideo != "" {
+			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
+				pp := postprocessor.FFmpegVideoRemux{FFmpeg: ff, RemuxFormat: y.Opts.RemuxVideo}
+				if out, rerr := pp.Process(final, y.Opts); rerr == nil {
+					fmt.Printf("[postprocess] remuxed -> %s\n", out)
+					final = out
+				} else if y.Opts.Verbose {
+					fmt.Printf("[warn] remux failed: %v\n", rerr)
+				}
+			}
+		}
+
+		// --extract-audio
+		if y.Opts.ExtractAudio {
+			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
+				pp := postprocessor.FFmpegExtractAudio{FFmpeg: ff, AudioFormat: y.Opts.AudioFormat, AudioQuality: y.Opts.AudioQuality}
+				if out, aerr := pp.Process(final, y.Opts); aerr == nil {
+					fmt.Printf("[postprocess] audio -> %s\n", out)
+					final = out
+				} else if y.Opts.Verbose {
+					fmt.Printf("[warn] audio extract failed: %v\n", aerr)
+				}
+			}
 		}
 	}
 
+	// Subtitles.
+	if y.Opts.WriteSubs {
+		y.writeSubtitles(info, base)
+	}
+
+	// Write info JSON.
 	if y.Opts.WriteInfoJSON {
 		b, _ := json.MarshalIndent(info, "", "  ")
 		_ = os.WriteFile(base+".info.json", b, 0o644)
 	}
+
+	// Record to archive.
+	if y.Opts.DownloadArchive != "" {
+		_ = archiveAppend(y.Opts.DownloadArchive, info.ID)
+	}
 	return nil
+}
+
+// downloadGroup downloads all formats in a group, returning the video and audio
+// file paths (empty when that stream was not present).
+func (y *YoutubeDL) downloadGroup(group []extractor.Format, base string) (videoPath, audioPath string) {
+	for _, f := range group {
+		kind := ""
+		if len(group) > 1 {
+			if f.ACodec != "" && f.VCodec == "" {
+				kind = "audio"
+			} else if f.VCodec != "" {
+				kind = "video"
+			}
+		}
+		path := outPath(base, kind, f.Ext)
+		if err := y.downloadFormat(f.URL, f, path); err != nil {
+			fmt.Fprintf(os.Stderr, "[warn] downloading %s: %v\n", f.FormatID, err)
+			continue
+		}
+		fmt.Printf("[download] %s -> %s\n", f.FormatID, path)
+		switch kind {
+		case "video":
+			videoPath = path
+		case "audio":
+			audioPath = path
+		default:
+			videoPath = path // single-format group
+		}
+	}
+	return videoPath, audioPath
+}
+
+// groupFinalPath estimates the on-disk path produced for a group (used for the
+// --no-overwrite check).
+func groupFinalPath(base string, group []extractor.Format, o *options.Options) string {
+	if len(group) > 1 {
+		container := o.MergeOutputFormat
+		if container == "" {
+			container = "mkv"
+		}
+		return fmt.Sprintf("%s.%s", base, container)
+	}
+	f := group[0]
+	ext := f.Ext
+	if o.ExtractAudio && o.AudioFormat != "" && o.AudioFormat != "best" {
+		ext = o.AudioFormat
+	}
+	if o.RemuxVideo != "" {
+		ext = o.RemuxVideo
+	}
+	return fmt.Sprintf("%s.%s", base, ext)
+}
+
+func trimPath(base string, n int) string {
+	dir := filepath.Dir(base)
+	name := filepath.Base(base)
+	r := []rune(name)
+	if len(r) > n {
+		name = string(r[:n])
+	}
+	return filepath.Join(dir, name)
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// writeSubtitles downloads (and optionally converts) the requested subtitle tracks.
+func (y *YoutubeDL) writeSubtitles(info *extractor.Info, base string) {
+	dir := filepath.Dir(base)
+	name := filepath.Base(base)
+	wanted := langFilter(y.Opts.SubLangs)
+	for lang, subs := range info.Subtitles {
+		if !langWanted(wanted, lang) {
+			continue
+		}
+		for _, s := range subs {
+			if s.URL == "" {
+				continue
+			}
+			ref := extractor.SubtitleRef{Lang: lang, URL: s.URL, Ext: s.Ext}
+			dst, derr := extractor.DownloadSubtitle(context.Background(), y.Client, ref, dir, name)
+			if derr != nil {
+				if y.Opts.Verbose {
+					fmt.Printf("[warn] subtitle %s: %v\n", lang, derr)
+				}
+				continue
+			}
+			if y.Opts.ConvertSubs != "" && s.Ext != y.Opts.ConvertSubs {
+				if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
+					pp := postprocessor.FFmpegSubtitlesConvertor{FFmpeg: ff, OutputExt: y.Opts.ConvertSubs}
+					if out, cerr := pp.Process(dst, y.Opts); cerr == nil {
+						_ = os.Remove(dst)
+						dst = out
+					}
+				}
+			}
+			fmt.Printf("[subtitle] %s -> %s\n", lang, dst)
+		}
+	}
+}
+
+func langFilter(spec string) []string {
+	if spec == "" {
+		return nil
+	}
+	parts := strings.Split(spec, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts
+}
+
+func langWanted(wanted []string, lang string) bool {
+	if len(wanted) == 0 {
+		return true // none specified -> all
+	}
+	for _, w := range wanted {
+		if w == "all" || w == lang || strings.HasPrefix(lang, w+"-") || strings.HasPrefix(w, lang+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func archiveHas(path, id string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == id {
+			return true
+		}
+	}
+	return false
+}
+
+func archiveAppend(path, id string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(id + "\n")
+	return err
 }
 
 func (y *YoutubeDL) extract(rawURL string) (*extractor.Info, error) {
