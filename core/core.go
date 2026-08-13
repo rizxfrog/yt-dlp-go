@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"yt-dlp-go/downloader"
@@ -21,6 +20,7 @@ import (
 	_ "yt-dlp-go/extractor/acast"
 	_ "yt-dlp-go/extractor/generic"
 	_ "yt-dlp-go/extractor/youtube"
+	"yt-dlp-go/format"
 	"yt-dlp-go/network"
 	"yt-dlp-go/options"
 	"yt-dlp-go/postprocessor"
@@ -66,53 +66,55 @@ func (y *YoutubeDL) Download(rawURL string) error {
 		fmt.Printf("[info] title=%q id=%s formats=%d\n", info.Title, info.ID, len(info.Formats))
 	}
 
-	selected, err := selectFormats(info, y.Opts.Format)
+	groups, err := format.Select(info.Formats, y.Opts.Format)
 	if err != nil {
 		return err
 	}
 
 	base := y.outputBase(info)
-	var videoPath, audioPath string
-	for _, f := range selected {
-		kind := ""
-		if len(selected) > 1 {
-			if f.ACodec != "" && f.VCodec == "" {
-				kind = "audio"
-			} else if f.VCodec != "" {
-				kind = "video"
+	for _, group := range groups {
+		var videoPath, audioPath string
+		for _, f := range group {
+			kind := ""
+			if len(group) > 1 {
+				if f.ACodec != "" && f.VCodec == "" {
+					kind = "audio"
+				} else if f.VCodec != "" {
+					kind = "video"
+				}
+			}
+			path := outPath(base, kind, f.Ext)
+			if err := y.downloadFormat(rawURL, f, path); err != nil {
+				return fmt.Errorf("downloading format %s: %w", f.FormatID, err)
+			}
+			fmt.Printf("[download] %s -> %s\n", f.FormatID, path)
+			switch kind {
+			case "video":
+				videoPath = path
+			case "audio":
+				audioPath = path
 			}
 		}
-		path := outPath(base, kind, f.Ext)
-		if err := y.downloadFormat(rawURL, f, path); err != nil {
-			return fmt.Errorf("downloading format %s: %w", f.FormatID, err)
-		}
-		fmt.Printf("[download] %s -> %s\n", f.FormatID, path)
-		switch kind {
-		case "video":
-			videoPath = path
-		case "audio":
-			audioPath = path
-		}
-	}
 
-	// Merge separate video+audio streams into one container via ffmpeg.
-	if videoPath != "" && audioPath != "" {
-		ff, err := postprocessor.FindFFmpeg(y.Opts)
-		if err == nil {
-			container := y.Opts.MergeOutputFormat
-			if container == "" {
-				container = "mkv"
-			}
-			final := base + "." + container
-			if merr := postprocessor.Merge(videoPath, audioPath, final, container, ff); merr == nil {
-				fmt.Printf("[postprocess] merged -> %s\n", final)
-				_ = os.Remove(videoPath)
-				_ = os.Remove(audioPath)
+		// Merge separate video+audio streams into one container via ffmpeg.
+		if videoPath != "" && audioPath != "" {
+			ff, ferr := postprocessor.FindFFmpeg(y.Opts)
+			if ferr == nil {
+				container := y.Opts.MergeOutputFormat
+				if container == "" {
+					container = "mkv"
+				}
+				final := fmt.Sprintf("%s.%s", base, container)
+				if merr := postprocessor.Merge(videoPath, audioPath, final, container, ff); merr == nil {
+					fmt.Printf("[postprocess] merged -> %s\n", final)
+					_ = os.Remove(videoPath)
+					_ = os.Remove(audioPath)
+				} else if y.Opts.Verbose {
+					fmt.Printf("[warn] merge failed: %v\n", merr)
+				}
 			} else if y.Opts.Verbose {
-				fmt.Printf("[warn] merge failed: %v\n", merr)
+				fmt.Printf("[warn] %v\n", ferr)
 			}
-		} else if y.Opts.Verbose {
-			fmt.Printf("[warn] %v\n", err)
 		}
 	}
 
@@ -173,103 +175,4 @@ func outPath(base, kind, ext string) string {
 		return base + "." + ext
 	}
 	return fmt.Sprintf("%s.%s.%s", base, kind, ext)
-}
-
-// ---- format selection ----
-
-func selectFormats(info *extractor.Info, sel string) ([]extractor.Format, error) {
-	sel = strings.TrimSpace(sel)
-	switch sel {
-	case "", "best":
-		if c := bestCombined(info.Formats); c != nil {
-			return []extractor.Format{*c}, nil
-		}
-	case "worst":
-		if c := worstCombined(info.Formats); c != nil {
-			return []extractor.Format{*c}, nil
-		}
-	case "bestvideo":
-		if v := bestVideo(info.Formats); v != nil {
-			return []extractor.Format{*v}, nil
-		}
-	case "bestaudio":
-		if a := bestAudio(info.Formats); a != nil {
-			return []extractor.Format{*a}, nil
-		}
-	}
-	if n, err := strconv.Atoi(sel); err == nil {
-		for _, f := range info.Formats {
-			if f.FormatID == sel || f.FormatID == strconv.Itoa(n) {
-				return []extractor.Format{f}, nil
-			}
-		}
-	}
-	// Fallback: best video + best audio.
-	var res []extractor.Format
-	if v := bestVideo(info.Formats); v != nil {
-		res = append(res, *v)
-	}
-	if a := bestAudio(info.Formats); a != nil && (v == nil || a.FormatID != v.FormatID) {
-		res = append(res, *a)
-	}
-	if len(res) == 0 {
-		return nil, fmt.Errorf("no format matched %q", sel)
-	}
-	return res, nil
-}
-
-func bestCombined(fs []extractor.Format) *extractor.Format {
-	var best *extractor.Format
-	for i := range fs {
-		f := &fs[i]
-		if f.VCodec != "" && f.ACodec != "" {
-			if best == nil || quality(f) > quality(best) {
-				best = f
-			}
-		}
-	}
-	return best
-}
-
-func worstCombined(fs []extractor.Format) *extractor.Format {
-	var best *extractor.Format
-	for i := range fs {
-		f := &fs[i]
-		if f.VCodec != "" && f.ACodec != "" {
-			if best == nil || quality(f) < quality(best) {
-				best = f
-			}
-		}
-	}
-	return best
-}
-
-func bestVideo(fs []extractor.Format) *extractor.Format {
-	var best *extractor.Format
-	for i := range fs {
-		f := &fs[i]
-		if f.VCodec != "" {
-			if best == nil || quality(f) > quality(best) {
-				best = f
-			}
-		}
-	}
-	return best
-}
-
-func bestAudio(fs []extractor.Format) *extractor.Format {
-	var best *extractor.Format
-	for i := range fs {
-		f := &fs[i]
-		if f.ACodec != "" {
-			if best == nil || f.Filesize > best.Filesize || f.TBR > best.TBR {
-				best = f
-			}
-		}
-	}
-	return best
-}
-
-func quality(f *extractor.Format) int {
-	return f.Height*1_000_000 + int(f.Filesize) + int(f.TBR)*1000
 }

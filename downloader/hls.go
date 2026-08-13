@@ -56,7 +56,7 @@ func (FragmentDownloader) Download(ctx context.Context, manifestURL, outPath str
 	}
 
 	// Resolve variant playlists (depth-limited) to a media playlist.
-	manifest, depth, err := resolveManifest(ctx, client, opts.Headers, manifestURL, 0)
+	manifest, _, err := resolveManifest(ctx, client, opts.Headers, manifestURL, 0)
 	if err != nil {
 		return err
 	}
