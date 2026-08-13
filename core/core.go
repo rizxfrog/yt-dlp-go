@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"yt-dlp-go/downloader"
 	"yt-dlp-go/extractor"
@@ -23,6 +22,7 @@ import (
 	"yt-dlp-go/format"
 	"yt-dlp-go/network"
 	"yt-dlp-go/options"
+	"yt-dlp-go/output"
 	"yt-dlp-go/postprocessor"
 )
 
@@ -153,21 +153,22 @@ func (y *YoutubeDL) downloadFormat(refURL string, f extractor.Format, path strin
 // ---- output naming ----
 
 func (y *YoutubeDL) outputBase(info *extractor.Info) string {
-	name := info.Title
-	if name == "" {
-		name = info.ID
-	}
-	name = sanitize(name)
 	dir := y.Opts.OutputDir
 	if dir == "" {
 		dir = "."
 	}
-	return filepath.Join(dir, name)
-}
-
-func sanitize(s string) string {
-	r := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
-	return r.Replace(s)
+	if y.Opts.OutputTemplate != "" {
+		name, err := output.Render(y.Opts.OutputTemplate, info)
+		if err == nil && name != "" {
+			return filepath.Join(dir, output.Sanitize(name))
+		}
+		// On template error, fall through to the default naming.
+	}
+	name := info.Title
+	if name == "" {
+		name = info.ID
+	}
+	return filepath.Join(dir, output.Sanitize(name))
 }
 
 func outPath(base, kind, ext string) string {
