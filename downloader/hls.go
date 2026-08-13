@@ -45,7 +45,11 @@ type FragmentDownloader struct{}
 func (FragmentDownloader) Name() string { return "hlsnative" }
 
 // Download parses the manifest at url and writes the assembled stream to outPath.
+// It dispatches to the HLS or DASH parser based on the manifest type.
 func (FragmentDownloader) Download(ctx context.Context, manifestURL, outPath string, opts DownloadOpts) error {
+	if strings.Contains(strings.ToLower(manifestURL), ".mpd") {
+		return downloadDASH(ctx, manifestURL, opts, outPath)
+	}
 	client := opts.Client
 	if client == nil {
 		client = http.DefaultClient

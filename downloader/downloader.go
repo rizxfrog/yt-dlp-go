@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"yt-dlp-go/extractor"
 )
 
 // ProgressFunc is invoked with bytes downloaded so far and the total (or -1 if
@@ -26,6 +28,7 @@ type DownloadOpts struct {
 	ConcurrentFragments int
 	Progress            ProgressFunc
 	IsLive              bool
+	Format              extractor.Format // the format being fetched (used to pick DASH reps)
 }
 
 // Downloader is implemented by each backend.
