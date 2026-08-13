@@ -136,6 +136,10 @@ func NewClient(cfg *ClientConfig) (*http.Client, error) {
 		Proxy:           proxyFromConfig(cfg.Proxy),
 		DialContext:     (&timeoutDialer{timeout: cfg.SocketTimeout}).dial,
 	}
+	// configureTLS is a build-tagged hook: with `-tags utls` it installs a
+	// utls-backed DialTLSContext that mimics the impersonated browser's
+	// ClientHello; without the tag it is a no-op (stdlib TLS).
+	configureTLS(transport, cfg)
 
 	client := &http.Client{
 		Transport: buildHeaderTransport(transport, cfg),
