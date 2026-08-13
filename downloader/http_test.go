@@ -100,11 +100,11 @@ func TestHTTPDownload_404NotRetryable(t *testing.T) {
 
 func TestParseRateLimit(t *testing.T) {
 	cases := map[string]int64{
-		"":     0,
-		"50K":  50 * 1024,
-		"1M":   1024 * 1024,
-		"2G":   2 * 1024 * 1024 * 1024,
-		"100":  100,
+		"":    0,
+		"50K": 50 * 1024,
+		"1M":  1024 * 1024,
+		"2G":  2 * 1024 * 1024 * 1024,
+		"100": 100,
 	}
 	for in, want := range cases {
 		if got := parseRateLimit(in); got != want {

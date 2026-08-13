@@ -2,12 +2,12 @@
 // pages and b23.tv short links).
 //
 // Bilibili serves two things we care about:
-//   1. Page metadata embedded as JSON in `window.__INITIAL_STATE__`.
-//   2. The actual media URLs from the playurl API
-//      (https://api.bilibili.com/x/player/wbi/playurl), which is protected by the
-//      "WBI" request-signing scheme. We implement WBI signing in pure Go so the
-//      extractor is self-contained (no extra dependency) and the signing step is
-//      unit-testable.
+//  1. Page metadata embedded as JSON in `window.__INITIAL_STATE__`.
+//  2. The actual media URLs from the playurl API
+//     (https://api.bilibili.com/x/player/wbi/playurl), which is protected by the
+//     "WBI" request-signing scheme. We implement WBI signing in pure Go so the
+//     extractor is self-contained (no extra dependency) and the signing step is
+//     unit-testable.
 //
 // Live Bilibili internals change; when the playurl call fails (e.g. login-gated
 // high resolutions, rate limiting), the extractor still returns the metadata so
@@ -68,17 +68,17 @@ func (BilibiliIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.In
 	}
 
 	info := &extractor.Info{
-		ID:           meta.BVID,
-		Title:        meta.Title,
-		Description:  meta.Desc,
-		Uploader:     meta.Owner,
-		UploadDate:   meta.PubDate,
-		Thumbnail:    meta.Pic,
-		WebpageURL:   pageURL,
-		Ext:          "mp4",
-		Duration:     meta.Duration,
-		Subtitles:    map[string][]extractor.Subtitle{},
-		Raw:          meta.Raw,
+		ID:          meta.BVID,
+		Title:       meta.Title,
+		Description: meta.Desc,
+		Uploader:    meta.Owner,
+		UploadDate:  meta.PubDate,
+		Thumbnail:   meta.Pic,
+		WebpageURL:  pageURL,
+		Ext:         "mp4",
+		Duration:    meta.Duration,
+		Subtitles:   map[string][]extractor.Subtitle{},
+		Raw:         meta.Raw,
 	}
 
 	// Best-effort media resolution via the WBI-signed playurl API.
@@ -206,7 +206,7 @@ func fetchFormats(ctx *extractor.Context, meta *initialState) ([]extractor.Forma
 	params := url.Values{}
 	params.Set("bvid", meta.BVID)
 	params.Set("cid", fmt.Sprintf("%d", meta.CID))
-	params.Set("qn", "64")   // 720p
+	params.Set("qn", "64")    // 720p
 	params.Set("fnval", "16") // DASH
 	params.Set("fourk", "1")
 	params.Set("platform", "pc")
@@ -255,11 +255,11 @@ func extractPlayurlFormats(body any) ([]extractor.Format, error) {
 					continue
 				}
 				f := extractor.Format{
-					FormatID:  fmt.Sprintf("%s-%d", key, extractor.IntOrNone(extractor.TraverseObj(m, "id"))),
-					URL:       u,
-					Protocol:  "http",
-					Ext:       "m4s",
-					TBR:       extractor.FloatOrNone(extractor.TraverseObj(m, "bandwidth")) / 1000,
+					FormatID: fmt.Sprintf("%s-%d", key, extractor.IntOrNone(extractor.TraverseObj(m, "id"))),
+					URL:      u,
+					Protocol: "http",
+					Ext:      "m4s",
+					TBR:      extractor.FloatOrNone(extractor.TraverseObj(m, "bandwidth")) / 1000,
 					Width:    extractor.IntOrNone(extractor.TraverseObj(m, "width")),
 					Height:   extractor.IntOrNone(extractor.TraverseObj(m, "height")),
 					Filesize: int64(extractor.FloatOrNone(extractor.TraverseObj(m, "size"))),
@@ -287,10 +287,10 @@ func extractPlayurlFormats(body any) ([]extractor.Format, error) {
 				continue
 			}
 			out = append(out, extractor.Format{
-				FormatID:  fmt.Sprintf("flv-%d", i),
-				URL:       u,
-				Protocol:  "http",
-				Ext:       "flv",
+				FormatID: fmt.Sprintf("flv-%d", i),
+				URL:      u,
+				Protocol: "http",
+				Ext:      "flv",
 				Filesize: int64(extractor.FloatOrNone(extractor.TraverseObj(m, "size"))),
 			})
 		}

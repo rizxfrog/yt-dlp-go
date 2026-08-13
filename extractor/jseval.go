@@ -25,8 +25,8 @@ type sigOp struct {
 
 var (
 	mainFuncRE = regexp.MustCompile(`function\s+([A-Za-z_$][\w$]*)\([a-z]\)\{[a-z]=[a-z]\.split\(""\);(.+?);return [a-z]\.join\(""\)\}`)
-	callRE      = regexp.MustCompile(`([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\([a-z],\s*(\d+)\)`)
-	helperRE    = regexp.MustCompile(`([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*=\s*function\(([a-z]),?\s*([a-z])?\)\{(.+?)\}`)
+	callRE     = regexp.MustCompile(`([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\([a-z],\s*(\d+)\)`)
+	helperRE   = regexp.MustCompile(`([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*=\s*function\(([a-z]),?\s*([a-z])?\)\{(.+?)\}`)
 )
 
 // DeobfuscateSignature applies the player's signature transform to sig.

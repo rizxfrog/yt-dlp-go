@@ -55,25 +55,40 @@ func printHelp() {
 
 Usage: yt-dlp-go [options] URL [URL...]
 
+Supported sites: YouTube, Bilibili, TikTok, Acast, and direct media URLs.
+
 Options (subset of yt-dlp):
-  -f, --format FMT          format selector (best, worst, bestvideo, bestaudio, or itag)
-  -o, --output TEMPLATE     output filename (template support is minimal)
+  -f, --format FMT          format selector (best, worst, bestvideo+bestaudio, itag, [filter])
+  -o, --output TEMPLATE     output filename template (%(title)s.%(ext)s, defaults, dates)
   -P, --paths DIR           base directory for output files
   --merge-output-format FMT container for merged outputs (mkv/mp4)
   --proxy URL               HTTP(S)/SOCKS proxy
   --cookies FILE            Netscape/Mozilla cookies.txt
   --no-check-certificates   ignore TLS errors
   --user-agent UA           set User-Agent
-  --impersonate BROWSER     chrome|firefox|safari|edge (header set)
+  --impersonate BROWSER     chrome|firefox|safari|edge (header set; real TLS via -tags utls)
   -R, --retries N           retry count
   --socket-timeout SECS      connection timeout
-  -r, --limit-rate RATE      bandwidth cap
+  -r, --limit-rate RATE      bandwidth cap (e.g. 50K, 1M)
   -H, --add-header K:V       extra HTTP header (repeatable)
   -u, --username USER        account username
   -p, --password PASS        account password
   --concurrent-fragments N   parallel fragment downloads
   --skip-download           do not download
   -s, --simulate            simulate only
+  --write-subs              write subtitle files
+  --sub-langs LANGS         subtitle languages (en,zh-Hans,all)
+  --convert-subs FMT        convert subtitles (srt/vtt/ass)
+  -x, --extract-audio       extract audio track only
+  --audio-format FMT        mp3/aac/m4a/opus/flac/wav
+  --remux-video FMT         remux into container (mp4/mkv)
+  --download-archive FILE   skip already-downloaded IDs
+  --playlist-items SPEC     1-5,8 (1-based playlist slice)
+  --no-playlist             download only the first entry of a playlist
+  --no-overwrites           skip files that already exist
+  --trim-filenames N        limit filename length
+  --dateafter/--datebefore  YYYYMMDD filters
+  --print FIELD             print a template field, e.g. %(title)s
   --ffmpeg-location PATH    path to ffmpeg/ffprobe
   --write-info-json         write .info.json
   -j, --dump-json           print info JSON to stdout
@@ -82,7 +97,8 @@ Options (subset of yt-dlp):
   --version                 print version
   -h, --help                show this help
 
-Note: built with the Go standard library only. For TLS fingerprint
-impersonation (utls) and a full JS signature engine (goja), see README.md.
+Note: default build is the Go standard library only. For real TLS fingerprint
+impersonation build with: go build -tags utls .  For a full JS signature engine
+(goja), see README.md.
 `)
 }

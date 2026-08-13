@@ -82,7 +82,7 @@ func renameReplace(src, dst string) error {
 // MergePP is a PostProcessor that merges a sibling audio file named
 // "<base>.video.<ext>" and "<base>.audio.<ext>" into "<base>.<container>".
 type MergePP struct {
-	FFmpeg   string
+	FFmpeg    string
 	Container string
 }
 

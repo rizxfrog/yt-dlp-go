@@ -9,8 +9,8 @@ import (
 
 // FFmpegExtractAudio re-encodes a media file to a standalone audio track.
 type FFmpegExtractAudio struct {
-	FFmpeg      string
-	AudioFormat string // mp3 | aac | m4a | opus | flac | wav | best | copy
+	FFmpeg       string
+	AudioFormat  string // mp3 | aac | m4a | opus | flac | wav | best | copy
 	AudioQuality string // e.g. "320" (kbps) or "5" (VBR index)
 }
 
@@ -70,7 +70,7 @@ func (p FFmpegExtractAudio) Process(input string, opts *options.Options) (string
 
 // FFmpegVideoRemux rewrites a file into another container without re-encoding.
 type FFmpegVideoRemux struct {
-	FFmpeg  string
+	FFmpeg      string
 	RemuxFormat string // mp4 | mkv | ...
 }
 

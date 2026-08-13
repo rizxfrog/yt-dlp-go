@@ -315,16 +315,16 @@ func extractJSONAssign(html, key string) (map[string]any, error) {
 		case '}':
 			depth--
 			if depth == 0 {
-			raw := html[start : j+1]
-			var v any
-			if uerr := json.Unmarshal([]byte(raw), &v); uerr == nil {
-				if m, ok := v.(map[string]any); ok {
-					return m, nil
+				raw := html[start : j+1]
+				var v any
+				if uerr := json.Unmarshal([]byte(raw), &v); uerr == nil {
+					if m, ok := v.(map[string]any); ok {
+						return m, nil
+					}
+					return nil, fmt.Errorf("json decode of %s produced a non-object", key)
+				} else {
+					return nil, fmt.Errorf("json decode of %s failed: %w", key, uerr)
 				}
-				return nil, fmt.Errorf("json decode of %s produced a non-object", key)
-			} else {
-				return nil, fmt.Errorf("json decode of %s failed: %w", key, uerr)
-			}
 			}
 		}
 	}

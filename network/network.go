@@ -33,7 +33,7 @@ type ClientConfig struct {
 	UserAgent     string
 	Proxy         string
 	CookiesFile   string
-	NoCheckCerts bool
+	NoCheckCerts  bool
 	Impersonate   string
 	SocketTimeout time.Duration
 	AddHeaders    map[string]string

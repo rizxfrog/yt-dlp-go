@@ -29,38 +29,38 @@ type dashRepresentation struct {
 }
 
 type mpdRoot struct {
-	XMLName           xml.Name `xml:"MPD"`
-	MediaPresentDur   string   `xml:"mediaPresentationDuration,attr"`
-	Period            []mpdPeriod
+	XMLName         xml.Name `xml:"MPD"`
+	MediaPresentDur string   `xml:"mediaPresentationDuration,attr"`
+	Period          []mpdPeriod
 }
 
 type mpdPeriod struct {
-	Duration        string `xml:"duration,attr"`
-	AdaptationSet   []struct {
-		ContentType string `xml:"contentType,attr"`
-		MimeType    string `xml:"mimeType,attr"`
-		BaseURL      string `xml:"BaseURL"`
+	Duration      string `xml:"duration,attr"`
+	AdaptationSet []struct {
+		ContentType    string `xml:"contentType,attr"`
+		MimeType       string `xml:"mimeType,attr"`
+		BaseURL        string `xml:"BaseURL"`
 		Representation []struct {
-			ID               string `xml:"id,attr"`
-			Bandwidth        uint64 `xml:"bandwidth,attr"`
-			Width            int    `xml:"width,attr"`
-			Height           int    `xml:"height,attr"`
-			Codecs           string `xml:"codecs,attr"`
+			ID                string `xml:"id,attr"`
+			Bandwidth         uint64 `xml:"bandwidth,attr"`
+			Width             int    `xml:"width,attr"`
+			Height            int    `xml:"height,attr"`
+			Codecs            string `xml:"codecs,attr"`
 			AudioSamplingRate string `xml:"audioSamplingRate,attr"`
-			BaseURL          string `xml:"BaseURL"`
-			SegmentBase      *struct {
+			BaseURL           string `xml:"BaseURL"`
+			SegmentBase       *struct {
 				IndexRange     string `xml:"indexRange,attr"`
 				Initialization struct {
 					SourceURL string `xml:"sourceURL,attr"`
 				} `xml:"Initialization"`
 			} `xml:"SegmentBase"`
 			SegmentTemplate *struct {
-				Duration     uint64 `xml:"duration,attr"`
-				Timescale    uint64 `xml:"timescale,attr"`
-				StartNumber  uint64 `xml:"startNumber,attr"`
+				Duration       uint64 `xml:"duration,attr"`
+				Timescale      uint64 `xml:"timescale,attr"`
+				StartNumber    uint64 `xml:"startNumber,attr"`
 				Initialization string `xml:"initialization,attr"`
-				Media        string `xml:"media,attr"`
-				Timeline     *struct {
+				Media          string `xml:"media,attr"`
+				Timeline       *struct {
 					S []struct {
 						D uint64 `xml:"d,attr"`
 						R uint64 `xml:"r,attr"`
@@ -127,26 +127,26 @@ func parseMPD(body, manifestURL string) ([]dashRepresentation, error) {
 }
 
 func buildDashSegments(rep *dashRepresentation, manifestURL, repBase string, r struct {
-	ID               string `xml:"id,attr"`
-	Bandwidth        uint64 `xml:"bandwidth,attr"`
-	Width            int    `xml:"width,attr"`
-	Height           int    `xml:"height,attr"`
-	Codecs           string `xml:"codecs,attr"`
+	ID                string `xml:"id,attr"`
+	Bandwidth         uint64 `xml:"bandwidth,attr"`
+	Width             int    `xml:"width,attr"`
+	Height            int    `xml:"height,attr"`
+	Codecs            string `xml:"codecs,attr"`
 	AudioSamplingRate string `xml:"audioSamplingRate,attr"`
-	BaseURL          string `xml:"BaseURL"`
-	SegmentBase      *struct {
+	BaseURL           string `xml:"BaseURL"`
+	SegmentBase       *struct {
 		IndexRange     string `xml:"indexRange,attr"`
 		Initialization struct {
 			SourceURL string `xml:"sourceURL,attr"`
 		} `xml:"Initialization"`
 	} `xml:"SegmentBase"`
 	SegmentTemplate *struct {
-		Duration     uint64 `xml:"duration,attr"`
-		Timescale    uint64 `xml:"timescale,attr"`
-		StartNumber  uint64 `xml:"startNumber,attr"`
+		Duration       uint64 `xml:"duration,attr"`
+		Timescale      uint64 `xml:"timescale,attr"`
+		StartNumber    uint64 `xml:"startNumber,attr"`
 		Initialization string `xml:"initialization,attr"`
-		Media        string `xml:"media,attr"`
-		Timeline     *struct {
+		Media          string `xml:"media,attr"`
+		Timeline       *struct {
 			S []struct {
 				D uint64 `xml:"d,attr"`
 				R uint64 `xml:"r,attr"`

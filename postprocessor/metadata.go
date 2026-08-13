@@ -7,7 +7,7 @@ import (
 // FFmpegMetadata writes title/artist/date/description and (optionally) an
 // embedded thumbnail into the media file.
 type FFmpegMetadata struct {
-	FFmpeg  string
+	FFmpeg      string
 	Title       string
 	Artist      string
 	Date        string // YYYYMMDD
@@ -103,8 +103,8 @@ func (p FFmpegEmbedSubtitle) Process(input string, opts *options.Options) (strin
 
 // FFmpegSubtitlesConvertor transcodes a subtitle file between formats.
 type FFmpegSubtitlesConvertor struct {
-	FFmpeg      string
-	OutputExt   string // srt | vtt | ass
+	FFmpeg    string
+	OutputExt string // srt | vtt | ass
 }
 
 func (p FFmpegSubtitlesConvertor) Name() string { return "FFmpegSubtitlesConvertor" }

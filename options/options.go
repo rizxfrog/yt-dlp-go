@@ -39,11 +39,11 @@ type Options struct {
 	Netrc    bool   // --netrc
 
 	// Download behaviour
-	ConcurrentFragments int  // --concurrent-fragments
-	SkipDownload        bool // --skip-download
-	Simulate            bool // --simulate / -s
-	NoOverwrites        bool // --no-overwrite
-	Continue            bool // --continue (resume; on by default)
+	ConcurrentFragments int    // --concurrent-fragments
+	SkipDownload        bool   // --skip-download
+	Simulate            bool   // --simulate / -s
+	NoOverwrites        bool   // --no-overwrite
+	Continue            bool   // --continue (resume; on by default)
 	DownloadArchive     string // --download-archive FILE
 	PlaylistItems       string // --playlist-items 1-5,8
 	NoPlaylist          bool   // --no-playlist
@@ -54,19 +54,19 @@ type Options struct {
 	DateBefore string // --datebefore YYYYMMDD
 
 	// Subtitles
-	WriteSubs    bool   // --write-subs
-	WriteAutoSubs bool  // --write-auto-subs
-	SubLangs     string // --sub-langs en,zh-Hans
-	ConvertSubs  string // --convert-subs srt
+	WriteSubs     bool   // --write-subs
+	WriteAutoSubs bool   // --write-auto-subs
+	SubLangs      string // --sub-langs en,zh-Hans
+	ConvertSubs   string // --convert-subs srt
 
 	// Post-processing
-	ExtractAudio bool   // -x / --extract-audio
-	AudioFormat  string // --audio-format (mp3/aac/m4a/opus/flac/wav)
-	AudioQuality string // --audio-quality (320 / 5)
-	RemuxVideo   string // --remux-video (mp4/mkv)
+	ExtractAudio  bool   // -x / --extract-audio
+	AudioFormat   string // --audio-format (mp3/aac/m4a/opus/flac/wav)
+	AudioQuality  string // --audio-quality (320 / 5)
+	RemuxVideo    string // --remux-video (mp4/mkv)
 	TrimFilenames int    // --trim-filenames N
-	NoColors     bool    // --no-colors
-	PrintField   string  // --print %(field)s
+	NoColors      bool   // --no-colors
+	PrintField    string // --print %(field)s
 
 	// Post / output controls
 	FFmpegLocation string // --ffmpeg-location

@@ -3,13 +3,15 @@
 A Go reimplementation of the [yt-dlp](https://github.com/yt-dlp/yt-dlp) video
 downloader engine.
 
-> **Status: faithful foundation, not a 1:1 port.**
-> This repository mirrors yt-dlp's *architecture* and ports the hard parts
-> (signature deobfuscation, TLS-impersonation hook, concurrent fragment
-> download with AES-128, ffmpeg orchestration, and the extractor registry), plus
-> a representative extractor subset. It is built with the **Go standard library
-> only** so it compiles offline. The remaining ~2000 site extractors follow the
-> same `Extractor` interface and can be added incrementally.
+> **Status: working foundation, build-verified, not a 1:1 port.**
+> This repository mirrors yt-dlp's *architecture* and implements a substantial,
+> tested subset of its core features: a format-selection engine (`-f`), an output
+> template engine (`-o`), native HTTP / HLS / DASH downloaders with resume, rate
+> limiting and retry, an ffmpeg postprocessor collection, subtitle download, a
+> playlist + concurrent multi-URL pipeline, and a curated extractor set
+> (YouTube, Bilibili, TikTok, Acast, and a direct-URL fallback). The default
+> build uses the **Go standard library only** so it compiles offline; an optional
+> `-tags utls` build adds real TLS ClientHello impersonation.
 
 ## Why a foundation and not the full 225k-line port?
 
@@ -21,20 +23,24 @@ why a literal 1:1 port is not advisable for the same community-maintenance use
 case. This project instead proves the engine in Go and provides a clean
 extension point for a *curated* set of sites.
 
-(The full feasibility analysis that led to this scoping lives in the analysis
-report in the source repo.)
-
 ## Architecture
 
 ```
-main.go                 CLI entry, flag parsing, dispatch
+main.go                 CLI entry, flag parsing, concurrent dispatch
 core/                   YoutubeDL orchestrator: extract -> select -> download -> postprocess
+  ├─ Download()         single URL; branches to playlist vs single
+  ├─ DownloadURLs()     concurrent multi-URL download with error isolation
 options/                Options struct + flag parser (yt-dlp-flavoured switches)
-network/                *http.Client factory: headers, proxy, cookies, impersonation hook
-downloader/             HTTP downloader + native HLS/DASH fragment downloader (goroutines + AES-128)
-postprocessor/          ffmpeg orchestration (merge / remux)
+network/                *http.Client factory: headers, proxy, cookies, impersonation
+  └─ transport_utls.go  (-tags utls) real ClientHello impersonation via utls
+downloader/             HTTP downloader + native HLS/DASH fragment downloader
+format/                 -f selection grammar (best/worst/+merge//fallback/[filter])
+output/                 -o template engine (%(field)s, defaults, date, duration)
+postprocessor/          ffmpeg orchestration (merge / remux / extract-audio / metadata / subs)
 extractor/              Info/Format types, Extractor interface, registry, helpers, JS evaluator
-  /youtube              YouTube (ytInitialPlayerResponse + signature deobfuscation)
+  /youtube              YouTube (ytInitialPlayerResponse + signature deobfuscation + captions)
+  /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl)
+  /tiktok               TikTok (og:video meta + __NEXT_DATA__)
   /acast                Acast (JSON-API pattern)
   /generic              Direct media-URL fallback
 ```
@@ -45,50 +51,94 @@ a URL to the first extractor whose `Match()` returns true.
 
 ## Build & run
 
-Requires Go 1.22+. (Note: the dev sandbox used to generate this repo had no Go
-toolchain or network, so the code is written to compile cleanly but was **not**
-build-verified here — run `go build` in an environment with Go installed.)
+Requires Go 1.22+.
 
 ```bash
 cd yt-dlp-go
-go build -o yt-dlp-go .
+go build -o yt-dlp-go .                 # stdlib-only build (default)
+
+# Optional: real TLS fingerprint impersonation (Chrome/Firefox/Safari/Edge)
+go build -tags utls -o yt-dlp-go-utls .
+```
+
+> **Note on module downloads.** The default build needs no external modules.
+> The `utls` build pulls `github.com/refraction-networking/utls`. If the default
+> Go proxy is unreachable, use a mirror, e.g.
+> `GOPROXY=https://goproxy.cn,direct GOSUMDB=off go get github.com/refraction-networking/utls`.
+
+```bash
 ./yt-dlp-go --version
 ./yt-dlp-go -f best "https://www.youtube.com/watch?v=VIDEO_ID"
-./yt-dlp-go -s "https://youtu.be/VIDEO_ID"      # simulate, no download
-./yt-dlp-go -j "https://shows.acast.com/..."      # dump info JSON
-./yt-dlp-go "https://example.com/clip.mp4"       # direct-URL fallback
+./yt-dlp-go -f "bestvideo+bestaudio" -o "%(title)s.%(ext)s" "URL"
+./yt-dlp-go -s "https://youtu.be/VIDEO_ID"            # simulate, no download
+./yt-dlp-go -j "https://shows.acast.com/..."           # dump info JSON
+./yt-dlp-go --write-subs --sub-langs en,zh-Hans "URL"  # subtitles
+./yt-dlp-go --playlist-items 1-3 "PLAYLIST_URL"       # playlist slice
+./yt-dlp-go URL1 URL2 URL3                            # concurrent downloads
+./yt-dlp-go -x --audio-format mp3 "URL"               # extract audio
+./yt-dlp-go "https://www.bilibili.com/video/BV1xx411c7XD"
+./yt-dlp-go "https://www.tiktok.com/@user/video/123"
 ```
 
 ## What works today
 
-- HTTP downloader with retries.
-- Native HLS/DASH fragment downloader: m3u8 parsing, **concurrent** segment
-  fetch (goroutines + semaphore), **AES-128-CBC** decryption, TS concatenation.
-- ffmpeg merge/remux postprocessing.
-- Network layer with default headers, proxy, Netscape cookie files, and a
-  browser-impersonation header hook.
-- Extractors: YouTube (including ciphered-signature deobfuscation via the pure-Go
-  evaluator), Acast (API pattern), and a direct-URL generic fallback.
+- **Format selection (`-f`)**: `best` / `worst` / `bestvideo` / `bestaudio`,
+  `+` merge, `/` fallback, `,` multiple outputs, `[height<=720]` / `[ext=mp4]` /
+  `[protocol!=http]` filters, itag and itag-range matching.
+- **Output templates (`-o`)**: `%(field)s`, default values `%(title|id)s`,
+  case transforms `%(title)l`, date `%(upload_date>%Y-%m-%d)s`, duration
+  `%(duration>%H:%M:%S)s`, `raw.*` nested paths, literal `%%`, filesystem
+  sanitisation.
+- **Downloaders**: HTTP with resume (`.part` + Range + atomic rename), rate
+  limiting (`-r 50K`), exponential-backoff retry, non-retryable 4xx; native
+  **HLS** and **DASH (MPD)** fragment downloaders (SegmentTemplate/Base/List,
+  concurrent fragments, AES-128-CBC decryption, TS/m4s concatenation).
+- **Postprocessors**: ffmpeg merge, video remux (`--remux-video`), audio
+  extraction (`-x` with bitrate/quality), metadata + embedded thumbnail, subtitle
+  embed/convert.
+- **Subtitles**: HLS `#EXT-X-MEDIA` parsing + download, YouTube caption-track
+  extraction, language filtering (`--sub-langs`), format conversion.
+- **Playlists & concurrency**: `Info.Entries` playlist model; `--playlist-items`
+  1-based slicing; `--no-playlist` takes the first entry; `DownloadURLs` runs
+  multiple URLs concurrently with per-URL error isolation.
+- **Options**: `--download-archive`, `--no-overwrite`, `--dateafter/before`,
+  `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, proxy, cookies,
+  impersonation, retries, etc.
+- **Extractors**: YouTube (incl. ciphered-signature deobfuscation via the
+  pure-Go evaluator + caption extraction), **Bilibili** (metadata from
+  `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
+  **TikTok** (og:video meta + `__NEXT_DATA__`), Acast, and a direct-URL
+  generic fallback.
+- **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
+  `utls`, reproducing the impersonated browser's ClientHello.
+
+## Testing
+
+The pure-logic modules are unit-tested offline (no network):
+
+```bash
+go test ./...
+go test -tags utls ./network/   # only with the utls build
+```
 
 ## Known limitations / next steps
 
-1. **Verify compilation.** Run `go vet ./...` and `go build ./...` in a Go
-   environment; fix any issues (the code was authored in a Go-less sandbox).
-2. **Signature deobfuscation robustness.** The current `extractor.DeobfuscateSignature`
+1. **Real-site extraction needs online verification.** YouTube / Bilibili /
+   TikTok internals change often; the extractors are structurally faithful and
+   their parsing functions are unit-tested, but live behaviour may drift (as with
+   upstream yt-dlp). Bilibili media URLs additionally require the WBI-signed
+   `playurl` API, which needs a live session.
+2. **Signature deobfuscation robustness.** `extractor.DeobfuscateSignature`
    uses yt-dlp's classic regex-based transform extraction. Modern YouTube changes
    this frequently. *Recommended upgrade:* embed
-   [`github.com/dop251/goja`](https://github.com/dop251/goja) (a pure-Go ECMAScript
-   engine) and evaluate the player function directly — `DeobfuscateSignature` is
-   the exact seam to swap.
-3. **TLS fingerprint impersonation.** The standard library cannot alter the TLS
-   ClientHello. For parity with yt-dlp's `curl_cffi` backend, swap the transport's
-   dialer for [`refraction-networking/utls`](https://github.com/refraction-networking/utls)
-   (or `bogdanfinn/tls-client`) gated on `--impersonate`.
-4. **Extractors.** Port more sites by copying the shape of `extractor/acast` or
-   `extractor/youtube` and calling `extractor.Register` from `init()`. Aim for a
-   curated, well-tested subset rather than all 2000.
-5. **Postprocessors.** Add metadata embedding, SponsorBlock, and subtitle download.
-6. **Output templating.** Implement `%(title)s.%(ext)s`-style `%(...)s` expansion.
+   [`github.com/dop251/goja`](https://github.com/dop251/goja) (a pure-Go
+   ECMAScript engine) and evaluate the player function directly —
+   `DeobfuscateSignature` is the exact seam to swap.
+3. **Extractor coverage.** More sites can be added by copying the shape of
+   `extractor/acast` / `extractor/bilibili` and calling `extractor.Register`
+   from `init()`. Aim for a curated, well-tested subset rather than all 2000.
+4. **Postprocessors.** SponsorBlock, more fixups, and richer metadata mapping
+   remain incremental additions.
 
 ## License
 

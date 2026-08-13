@@ -14,12 +14,12 @@ func TestExtractSubtitles(t *testing.T) {
 					map[string]any{
 						"languageCode": "en",
 						"baseUrl":      "https://www.youtube.com/api/timedtext?lang=en",
-						"name":        map[string]any{"simpleText": "English"},
+						"name":         map[string]any{"simpleText": "English"},
 					},
 					map[string]any{
 						"languageCode": "zh",
 						"baseUrl":      "https://www.youtube.com/api/timedtext?lang=zh",
-						"name":        map[string]any{"simpleText": "中文"},
+						"name":         map[string]any{"simpleText": "中文"},
 					},
 				},
 			},

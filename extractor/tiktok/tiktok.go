@@ -52,11 +52,11 @@ func ParsePage(html, pageURL string) (*extractor.Info, error) {
 	title = htmlUnescape(title)
 
 	info := &extractor.Info{
-		Title:        title,
-		WebpageURL:   pageURL,
-		Ext:          "mp4",
-		Subtitles:    map[string][]extractor.Subtitle{},
-		Raw:          map[string]any{},
+		Title:      title,
+		WebpageURL: pageURL,
+		Ext:        "mp4",
+		Subtitles:  map[string][]extractor.Subtitle{},
+		Raw:        map[string]any{},
 	}
 
 	// Enrich from __NEXT_DATA__ when present.
