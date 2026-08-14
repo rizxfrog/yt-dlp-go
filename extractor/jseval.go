@@ -22,11 +22,25 @@ import (
 
 // DeobfuscateSignature reverses a YouTube player's signature transform.
 // Primary path: evaluate the player function in goja. Fallback: regex pipeline.
-func DeobfuscateSignature(playerJS, sig string) (string, error) {
-	if out, err := deobfuscateGoja(playerJS, sig); err == nil {
+// sts (the signature timestamp from the player response) is passed as the
+// second argument when non-empty, matching modern player functions of the form
+// function(a, b){ ... } where b is the timestamp.
+func DeobfuscateSignature(playerJS, sig, sts string) (string, error) {
+	var extra []string
+	if sts != "" {
+		extra = []string{sts}
+	}
+	if out, err := deobfuscateGoja(playerJS, sig, extra, findTransform); err == nil {
 		return out, nil
 	}
 	return deobfuscateRegex(playerJS, sig)
+}
+
+// DeobfuscateNSig reverses a YouTube player's "n" (throttling) transform using
+// the same goja engine. The n function is identified separately from the
+// signature transform (see findNTransform).
+func DeobfuscateNSig(playerJS, n string) (string, error) {
+	return deobfuscateGoja(playerJS, n, nil, findNTransform)
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +215,57 @@ func findTransform(src string) (name, text string) {
 	return cands[0].name, cands[0].text
 }
 
+// findNTransform returns the name and full text of the "n" (throttling) transform.
+// It is a different function from the signature transform: it operates on the n
+// query parameter (typically with charAt / substr / substring / slice and a
+// return), and crucially does NOT split a string on "" and rejoin it (that is the
+// signature transform). Candidates are scanned in source order for determinism.
+func findNTransform(src string) (name, text string) {
+	scans := []*regexp.Regexp{reFuncDecl, reVarFunc, reAssignFunc}
+	type cand struct {
+		name, text string
+		idx        int
+	}
+	var cands []cand
+	for _, re := range scans {
+		for _, m := range re.FindAllStringSubmatchIndex(src, -1) {
+			nm := src[m[2]:m[3]]
+			headerStart := m[0]
+			bo := strings.Index(src[headerStart:], "{")
+			if bo < 0 {
+				continue
+			}
+			end, ok := extractBlock(src, headerStart+bo)
+			if !ok {
+				continue
+			}
+			t := src[headerStart : end+1]
+			if isNTransform(t) {
+				cands = append(cands, cand{nm, t, m[0]})
+			}
+		}
+	}
+	if len(cands) == 0 {
+		return "", ""
+	}
+	return cands[0].name, cands[0].text
+}
+
+// isNTransform reports whether a definition looks like the n throttling transform.
+func isNTransform(text string) bool {
+	b := strings.ToLower(text)
+	// Exclude the signature transform (splits on "" and rejoins).
+	if strings.Contains(b, "split(\"\"") && strings.Contains(b, "join(\"\"") {
+		return false
+	}
+	hasCharOp := strings.Contains(b, "charat") ||
+		strings.Contains(b, "substr") ||
+		strings.Contains(b, "substring") ||
+		strings.Contains(b, ".slice(")
+	hasReturn := strings.Contains(b, "return")
+	return hasCharOp && hasReturn
+}
+
 // referencedNames returns top-level identifiers referenced inside text, either
 // as `foo(` calls or `obj.method(` member calls. These are candidates for the
 // helper definitions that must be embedded alongside the transform.
@@ -227,11 +292,14 @@ func referencedNames(text string) []string {
 	return out
 }
 
-// deobfuscateGoja evaluates the player's signature transform in goja.
-func deobfuscateGoja(playerJS, sig string) (string, error) {
-	name, _ := findTransform(playerJS)
+// deobfuscateGoja evaluates a player transform (located by findFn) in goja.
+// arg is the primary input (signature or n); extra holds optional additional
+// arguments such as the sts timestamp. The function extracts the transform and
+// its (recursively) referenced helpers, defines them, then calls the transform.
+func deobfuscateGoja(playerJS, arg string, extra []string, findFn func(string) (string, string)) (string, error) {
+	name, _ := findFn(playerJS)
 	if name == "" {
-		return "", fmt.Errorf("no signature transform found")
+		return "", fmt.Errorf("no transform found")
 	}
 	defs := collectDefs(playerJS)
 
@@ -259,11 +327,20 @@ func deobfuscateGoja(playerJS, sig string) (string, error) {
 	if _, err := vm.RunString(prog.String()); err != nil {
 		return "", fmt.Errorf("goja define: %w", err)
 	}
-	v, err := vm.RunString(fmt.Sprintf("%s(%s)", name, jsonString(sig)))
+	args := append([]string{jsonString(arg)}, quoteAll(extra)...)
+	v, err := vm.RunString(fmt.Sprintf("%s(%s)", name, strings.Join(args, ",")))
 	if err != nil {
 		return "", fmt.Errorf("goja call: %w", err)
 	}
 	return v.String(), nil
+}
+
+func quoteAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = jsonString(s)
+	}
+	return out
 }
 
 func jsonString(s string) string {

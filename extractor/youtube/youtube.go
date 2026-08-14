@@ -66,6 +66,13 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 	}
 	lengthStr := extractor.StrOrNone(extractor.TraverseObj(details, "lengthSeconds"))
 
+	// Signature timestamp: passed as the second argument to the signature
+	// transform by modern player builds.
+	sts := ""
+	if raw := extractor.TraverseObj(player, "sts"); raw != nil {
+		sts = fmt.Sprintf("%v", raw)
+	}
+
 	info := &extractor.Info{
 		ID:         videoID,
 		Title:      title,
@@ -100,13 +107,18 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 		}
 	}
 
-	// Fetch the player JS once (needed only if any format is ciphered).
+	// Fetch the player JS once (needed if any format is ciphered, or carries an
+	// n throttling parameter that must be deobfuscated).
 	var playerJS string
 	var jsErr error
 	needsJS := false
 	for _, f := range formats {
 		if m, ok := f.(map[string]any); ok {
 			if extractor.StrOrNone(m["signatureCipher"]) != "" || extractor.StrOrNone(m["cipher"]) != "" {
+				needsJS = true
+				break
+			}
+			if u := extractor.StrOrNone(m["url"]); strings.Contains(u, "n=") {
 				needsJS = true
 				break
 			}
@@ -121,7 +133,7 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 		if !ok {
 			continue
 		}
-		fmtObj, err := buildFormat(m, playerJS, jsErr, ctx)
+		fmtObj, err := buildFormat(m, playerJS, jsErr, sts, ctx)
 		if err != nil {
 			// Skip formats we cannot resolve rather than aborting the whole run.
 			continue
@@ -162,7 +174,7 @@ func extractSubtitles(player map[string]any) map[string][]extractor.Subtitle {
 }
 
 // buildFormat turns a single streamingData format object into a Format.
-func buildFormat(m map[string]any, playerJS string, jsErr error, ctx *extractor.Context) (extractor.Format, error) {
+func buildFormat(m map[string]any, playerJS string, jsErr error, sts string, ctx *extractor.Context) (extractor.Format, error) {
 	f := extractor.Format{
 		FormatID:   fmt.Sprintf("%d", extractor.IntOrNone(m["itag"])),
 		VCodec:     mimeVideoCodec(extractor.StrOrNone(m["mimeType"])),
@@ -178,6 +190,7 @@ func buildFormat(m map[string]any, playerJS string, jsErr error, ctx *extractor.
 	if u := extractor.StrOrNone(m["url"]); u != "" {
 		f.URL = u
 		f.Protocol, f.Ext = classifyURL(u, extractor.StrOrNone(m["mimeType"]))
+		f.URL = rewriteNParam(playerJS, jsErr, f.URL)
 		return f, nil
 	}
 
@@ -205,7 +218,7 @@ func buildFormat(m map[string]any, playerJS string, jsErr error, ctx *extractor.
 	if jsErr != nil {
 		return f, fmt.Errorf("signature deobfuscation unavailable: %w", jsErr)
 	}
-	deob, err := extractor.DeobfuscateSignature(playerJS, sig)
+	deob, err := extractor.DeobfuscateSignature(playerJS, sig, sts)
 	if err != nil {
 		return f, err
 	}
@@ -215,7 +228,33 @@ func buildFormat(m map[string]any, playerJS string, jsErr error, ctx *extractor.
 	}
 	f.URL = base + sep + sp + "=" + url.QueryEscape(deob)
 	f.Protocol, f.Ext = classifyURL(f.URL, extractor.StrOrNone(m["mimeType"]))
+	f.URL = rewriteNParam(playerJS, jsErr, f.URL)
 	return f, nil
+}
+
+// rewriteNParam deobfuscates a format URL's n (throttling) query parameter via
+// the embedded goja engine. If the player JS is unavailable or the n function
+// cannot be evaluated, the original URL is returned unchanged (graceful).
+func rewriteNParam(playerJS string, jsErr error, rawURL string) string {
+	if playerJS == "" || jsErr != nil {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	n := u.Query().Get("n")
+	if n == "" {
+		return rawURL
+	}
+	deob, err := extractor.DeobfuscateNSig(playerJS, n)
+	if err != nil || deob == "" {
+		return rawURL
+	}
+	q := u.Query()
+	q.Set("n", deob)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func classifyURL(u, mime string) (protocol, ext string) {

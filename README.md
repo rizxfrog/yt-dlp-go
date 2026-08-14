@@ -108,8 +108,10 @@ go build -tags utls -o yt-dlp-go-utls .
 - **Options**: `--download-archive`, `--no-overwrite`, `--dateafter/before`,
   `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, proxy, cookies,
   impersonation, retries, etc.
-- **Extractors**: YouTube (incl. ciphered-signature deobfuscation evaluated in
-  an embedded `goja` JS engine + caption extraction), **Bilibili** (metadata from
+- **Extractors**: YouTube (incl. ciphered-signature deobfuscation **and** the `n`
+  throttling-parameter transform, both evaluated in an embedded `goja` JS engine,
+  with the `sts` timestamp injected as the signature function's second argument;
+  plus caption extraction), **Bilibili** (metadata from
   `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
   **TikTok** (og:video meta + `__NEXT_DATA__`), Acast, and a direct-URL
   generic fallback.
@@ -132,13 +134,15 @@ go test -tags utls ./network/   # only with the utls build
    their parsing functions are unit-tested, but live behaviour may drift (as with
    upstream yt-dlp). Bilibili media URLs additionally require the WBI-signed
    `playurl` API, which needs a live session.
-2. **Signature deobfuscation (done).** `extractor.DeobfuscateSignature` now
-   evaluates the player's transform function in an embedded `goja` ECMAScript
-   engine (pure Go), so the obfuscation runs exactly as YouTube wrote it; the
-   previous regex/classify pipeline is retained as a best-effort fallback.
-   *Possible further hardening:* also evaluate the `n`-function / `nsig` transform
-   and feed `clientVariables`/`player`'s `sts` into the call, which goja already
-   supports.
+2. **Signature & n-parameter deobfuscation (done).** `extractor.DeobfuscateSignature`
+   and `extractor.DeobfuscateNSig` both evaluate the player's transform functions
+   in an embedded `goja` ECMAScript engine (pure Go), so the obfuscation runs
+   exactly as YouTube wrote it; the previous regex/classify pipeline is retained
+   as a best-effort fallback for the signature. The `sts` timestamp from the
+   player response is injected as the signature function's second argument. The
+   `n` transform is identified heuristically (string ops + `return`, excluding the
+   signature transform); if it cannot be evaluated the `n` query param is left
+   unchanged so the download still proceeds.
 3. **Extractor coverage.** More sites can be added by copying the shape of
    `extractor/acast` / `extractor/bilibili` and calling `extractor.Register`
    from `init()`. Aim for a curated, well-tested subset rather than all 2000.

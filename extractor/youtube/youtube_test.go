@@ -1,6 +1,7 @@
 package youtube
 
 import (
+	"net/url"
 	"testing"
 
 	"yt-dlp-go/extractor"
@@ -57,12 +58,65 @@ var x={};x.y=function(c,d){c=c.slice(d);return c};
 var z={};z.w=function(a,b){var c=a[0];a[0]=a[b%a.length];a[b]=c;return a};
 function sig(a){a=a.split("");a=a.b(a,0);a=x.y(a,1);a=z.w(a,0);return a.join("")}
 `
-	got, err := extractor.DeobfuscateSignature(js, "abcdef")
+	got, err := extractor.DeobfuscateSignature(js, "abcdef", "")
 	if err != nil {
 		t.Fatalf("DeobfuscateSignature: %v", err)
 	}
 	// reverse("abcdef") = "fedcba"; slice(1) = "edcba"; swap(0,0) = "edcba" (no-op with itself).
 	if got != "edcba" {
 		t.Errorf("got %q, want edcba", got)
+	}
+}
+
+// playerNSig is a synthetic player whose "n" transform reverses via charAt.
+const playerNSig = `
+function nsig(a){var r="";for(var i=a.length-1;i>=0;i--){r=r+a.charAt(i)}return r}
+`
+
+func TestBuildFormat_RewritesNParam(t *testing.T) {
+	raw := "https://r.googlevideo.com/videoplayback?itag=22&n=abcdef&sig=xyz"
+	m := map[string]any{
+		"itag": 22,
+		"url":  raw,
+	}
+	f, err := buildFormat(m, playerNSig, nil, "", nil)
+	if err != nil {
+		t.Fatalf("buildFormat: %v", err)
+	}
+	u, err := url.Parse(f.URL)
+	if err != nil {
+		t.Fatalf("result url parse: %v", err)
+	}
+	if got := u.Query().Get("n"); got != "fedcba" {
+		t.Errorf("n param: got %q, want fedcba (full url %q)", got, f.URL)
+	}
+}
+
+func TestBuildFormat_NParamNoJS(t *testing.T) {
+	// Without player JS, the n param must be left untouched (graceful).
+	raw := "https://r.googlevideo.com/videoplayback?n=abcdef"
+	m := map[string]any{"itag": 22, "url": raw}
+	f, err := buildFormat(m, "", nil, "", nil)
+	if err != nil {
+		t.Fatalf("buildFormat: %v", err)
+	}
+	if f.URL != raw {
+		t.Errorf("expected url unchanged without player JS, got %q", f.URL)
+	}
+}
+
+func TestExtract_StsPassthrough(t *testing.T) {
+	// sts must be forwarded to the signature transform as its 2nd argument.
+	// Use a synthetic transform that reverses (split/join) and appends the 2nd arg.
+	js := `
+function sig(a,b){a=a.split("");a.reverse();return a.join("")+b}
+`
+	got, err := extractor.DeobfuscateSignature(js, "SIG", "12345")
+	if err != nil {
+		t.Fatalf("DeobfuscateSignature: %v", err)
+	}
+	// reverse("SIG") = "GIS", then append sts "12345"
+	if got != "GIS12345" {
+		t.Errorf("sts passthrough: got %q, want GIS12345", got)
 	}
 }
