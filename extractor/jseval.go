@@ -55,6 +55,12 @@ var (
 	reAssignObj  = regexp.MustCompile(`(?:^|[;{]\s*)([A-Za-z_$][\w$]*)\s*=\s*\{`)
 	reCall       = regexp.MustCompile(`([A-Za-z_$][\w$]*)\s*\(`)
 	reMemberCall = regexp.MustCompile(`([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(`)
+	// Call-site of the n-transform: an in-place self-reassigning call of the
+	// form `x = NAME(x)` (same identifier on both sides, single argument). This
+	// is the precise signal of where YouTube applies the n throttling transform.
+	reSelfCall = regexp.MustCompile(`([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)\s*\)`)
+	// Module form of the same call site: `x = (0, MOD.NAME)(x)`.
+	reSelfCallMember = regexp.MustCompile(`([A-Za-z_$][\w$]*)\s*=\s*\(0,\s*([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\)\s*\(\s*([A-Za-z_$][\w$]*)\s*\)`)
 )
 
 // collectDefs scans the player source for top-level function and object
@@ -219,8 +225,90 @@ func findTransform(src string) (name, text string) {
 // It is a different function from the signature transform: it operates on the n
 // query parameter (typically with charAt / substr / substring / slice and a
 // return), and crucially does NOT split a string on "" and rejoin it (that is the
-// signature transform). Candidates are scanned in source order for determinism.
+// signature transform).
+//
+// Localization strategy:
+//  1. Primary — CALL SITE. Rather than scanning every function definition and
+//     guessing by body shape, we locate where the player actually APPLIES the
+//     n-transform: an in-place self-reassigning call `x = NAME(x)` (or the module
+//     form `x = (0, MOD.NAME)(x)`). This is a low-false-positive signal because
+//     YouTube rewrites the n value in place. We resolve NAME to its definition and
+//     confirm it is n-shaped.
+//  2. Fallback — body shape. Only if no call site is found do we fall back to the
+//     older scan-every-definition heuristic.
 func findNTransform(src string) (name, text string) {
+	if n, t := findNByCallSite(src); n != "" {
+		return n, t
+	}
+	return findNByBody(src)
+}
+
+// findNByCallSite locates the n-transform via its application call site.
+func findNByCallSite(src string) (string, string) {
+	defs := collectDefs(src)
+	// Plain form: x = NAME(x)
+	for _, m := range reSelfCall.FindAllStringSubmatch(src, -1) {
+		lhs, fnName, arg := m[1], m[2], m[3]
+		if lhs != arg {
+			continue // must be a self-reassigning call
+		}
+		if t, ok := resolveNShaped(defs, fnName); ok {
+			return fnName, t
+		}
+	}
+	// Module form: x = (0, MOD.NAME)(x)
+	for _, m := range reSelfCallMember.FindAllStringSubmatch(src, -1) {
+		lhs, modName, fnName, arg := m[1], m[2], m[3], m[4]
+		if lhs != arg {
+			continue
+		}
+		member := modName + "." + fnName
+		if objDef, ok := defs[modName]; ok {
+			if t, ok := findMethodInObj(objDef, fnName); ok && isNTransform(t) {
+				return member, t
+			}
+		}
+	}
+	return "", ""
+}
+
+// resolveNShaped returns the definition of name if it exists and is n-shaped.
+func resolveNShaped(defs map[string]string, name string) (string, bool) {
+	t, ok := defs[name]
+	if !ok || !isNTransform(t) {
+		return "", false
+	}
+	return t, true
+}
+
+// findMethodInObj returns the method body for `method` within an object-literal
+// definition (e.g. `var M = { fo: function(a){...}, ... }`).
+func findMethodInObj(objDef, method string) (string, bool) {
+	re := regexp.MustCompile(`(?:^|[,{]\s*)` + regexp.QuoteMeta(method) + `\s*[:=]\s*function\s*\(`)
+	ms := re.FindStringSubmatchIndex(objDef)
+	if ms == nil {
+		// ES6 shorthand `method(a){...}` without `function`
+		re2 := regexp.MustCompile(`(?:^|[,{]\s*)` + regexp.QuoteMeta(method) + `\s*\(`)
+		ms = re2.FindStringSubmatchIndex(objDef)
+		if ms == nil {
+			return "", false
+		}
+	}
+	headerStart := ms[0]
+	bo := strings.Index(objDef[headerStart:], "{")
+	if bo < 0 {
+		return "", false
+	}
+	end, ok := extractBlock(objDef, headerStart+bo)
+	if !ok {
+		return "", false
+	}
+	return objDef[headerStart : end+1], true
+}
+
+// findNByBody is the legacy fallback: scan function definitions in source order
+// and pick the first whose body is n-shaped.
+func findNByBody(src string) (string, string) {
 	scans := []*regexp.Regexp{reFuncDecl, reVarFunc, reAssignFunc}
 	type cand struct {
 		name, text string
@@ -310,15 +398,19 @@ func deobfuscateGoja(playerJS, arg string, extra []string, findFn func(string) (
 		if included[n] {
 			return
 		}
-		d, ok := defs[n]
-		if !ok {
+		included[n] = true
+		if d, ok := defs[n]; ok {
+			prog.WriteString(d)
+			prog.WriteString("\n")
+			for _, ref := range referencedNames(d) {
+				expand(ref)
+			}
 			return
 		}
-		included[n] = true
-		prog.WriteString(d)
-		prog.WriteString("\n")
-		for _, ref := range referencedNames(d) {
-			expand(ref)
+		// Member call such as "M.fo": the definition lives on the parent object
+		// M, so embed that object instead (its method is reachable as M.fo).
+		if dot := strings.Index(n, "."); dot > 0 {
+			expand(n[:dot])
 		}
 	}
 	expand(name)

@@ -71,3 +71,43 @@ func TestDeobfuscateNSig_NoTransform(t *testing.T) {
 		t.Errorf("expected error when no n transform exists")
 	}
 }
+
+// fixtureNSigCallSite proves call-site localization: a decoy n-shaped function
+// (decoy) appears EARLIER in the source and would be chosen by the old
+// body-shape scan, but it is never self-reassigned. The real n-transform
+// (nTransform) is applied by the player via `n = nTransform(n)`, which is the
+// precise call-site signal. nTransform("abcdefgh") = "cde".
+const fixtureNSigCallSite = `
+function decoy(a){a=a.slice(1);return a.replace(/x/g,"")}
+function nTransform(a){a=a.charAt(0)+a.slice(1);a=a.substr(2,3);return a}
+function applyThrottle(n){n=nTransform(n);return n}
+`
+
+func TestDeobfuscateNSig_CallSite(t *testing.T) {
+	got, err := DeobfuscateNSig(fixtureNSigCallSite, "abcdefgh")
+	if err != nil {
+		t.Fatalf("DeobfuscateNSig (call site): %v", err)
+	}
+	// Must pick the APPLIED transform (nTransform -> "cde"), not the decoy
+	// (which would yield "bcdefgh"). This demonstrates call-site localization.
+	if got != "cde" {
+		t.Errorf("call-site nsig: got %q, want %q (decoy would give %q)", got, "cde", "bcdefgh")
+	}
+}
+
+// fixtureNSigModule exercises the module-form call site `x = (0, MOD.NAME)(x)`.
+// NMod.throttle("abcdefgh") = "edefgh".
+const fixtureNSigModule = `
+var NMod={throttle:function(a){a=a.slice(3);a=a.charAt(1)+a;return a}};
+function apply(n){n=(0,NMod.throttle)(n);return n}
+`
+
+func TestDeobfuscateNSig_ModuleCallSite(t *testing.T) {
+	got, err := DeobfuscateNSig(fixtureNSigModule, "abcdefgh")
+	if err != nil {
+		t.Fatalf("DeobfuscateNSig (module call site): %v", err)
+	}
+	if got != "edefgh" {
+		t.Errorf("module call-site nsig: got %q, want %q", got, "edefgh")
+	}
+}

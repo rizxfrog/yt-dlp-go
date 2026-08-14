@@ -109,9 +109,12 @@ go build -tags utls -o yt-dlp-go-utls .
   `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, proxy, cookies,
   impersonation, retries, etc.
 - **Extractors**: YouTube (incl. ciphered-signature deobfuscation **and** the `n`
-  throttling-parameter transform, both evaluated in an embedded `goja` JS engine,
-  with the `sts` timestamp injected as the signature function's second argument;
-  plus caption extraction), **Bilibili** (metadata from
+  throttling-parameter transform, both evaluated in an embedded `goja` JS engine;
+  the signature function receives the `sts` timestamp as its second argument, and
+  the `n` function is located by its **player call site** — the in-place
+  self-reassigning call `x = NAME(x)` (and the module form `x = (0, MOD.NAME)(x)`)
+  — rather than by guessing from body shape; plus caption extraction),
+  **Bilibili** (metadata from
   `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
   **TikTok** (og:video meta + `__NEXT_DATA__`), Acast, and a direct-URL
   generic fallback.
@@ -140,9 +143,10 @@ go test -tags utls ./network/   # only with the utls build
    exactly as YouTube wrote it; the previous regex/classify pipeline is retained
    as a best-effort fallback for the signature. The `sts` timestamp from the
    player response is injected as the signature function's second argument. The
-   `n` transform is identified heuristically (string ops + `return`, excluding the
-   signature transform); if it cannot be evaluated the `n` query param is left
-   unchanged so the download still proceeds.
+   `n` transform is located by its **player call site** (`x = NAME(x)` / the module
+   form `x = (0, MOD.NAME)(x)`), resolved to its definition and validated, with a
+   body-shape scan kept only as a last-resort fallback; if it cannot be evaluated
+   the `n` query param is left unchanged so the download still proceeds.
 3. **Extractor coverage.** More sites can be added by copying the shape of
    `extractor/acast` / `extractor/bilibili` and calling `extractor.Register`
    from `init()`. Aim for a curated, well-tested subset rather than all 2000.
