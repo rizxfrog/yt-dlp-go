@@ -55,6 +55,7 @@ main.go
 | 9 | 更多提取器 | ✅ 完成 | `go test ./extractor/...` 通过 | 新增 `extractor/bilibili`（解析 `window.__INITIAL_STATE__` 元数据 + 纯 Go 实现 WBI 签名 `wbiSign`/playurl DASH/durl 解析，均已单测）、`extractor/tiktok`（og:video meta + `__NEXT_DATA__` 两种形态解析，均已单测）；YouTube 增强：提取 `captionTracks` 字幕（`extractSubtitles`）+ 正确解析时长，单测覆盖字幕与签名求值；classify 增加 `.slice(` 识别；新提取器已注册进 core |
 | 10 | TLS 伪装（utls） | ✅ 完成 | `go build -tags utls` + `go test -tags utls` 通过 | 默认构建保持纯标准库（见下）；`-tags utls` 时用 `github.com/refraction-networking/utls` 替换 transport 的 `DialTLSContext`，按 `--impersonate chrome/firefox/safari/edge` 复刻真实 ClientHello（HelloChrome/Firefox/Safari/Edge_Auto）。实现为 build-tag 双文件：`transport_stdlib.go`(no-op) + `transport_utls.go`(utls dialer)；`configureTLS` 钩子接入 `NewClient`。注意依赖经 goproxy.cn 拉取（proxy.golang.org 不可达） |
 | 11 | 测试/修复/集成/文档 | ✅ 完成 | `go test ./...` 全绿 + utls 构建通过 | 更新 README（功能清单/构建说明/已知限制）、main 帮助文本；`gofmt -w` 全量格式化；默认构建（纯标准库）与 `-tags utls` 构建均 `build/vet/test` 通过；全部测试绿 |
+| 12 | YouTube 签名求值器升级为 goja | ✅ 完成 | `go test ./extractor/` 全绿（含对象字面量/内联两种形态） | `extractor/jseval.go` 改为以 `github.com/dop251/goja`（纯 Go ES 引擎）直接求值播放器 transform 函数；保留原正则 classify 管线作为降级兜底。新增 `collectDefs`/`extractBlock`/`findTransform`/`referencedNames`；transform 识别改为 `split("")...+join("")` 特征，按源码顺序扫描保证确定性；新增 `jseval_test.go`（对象字面量 helper `var V={...}`、内联、无 transform 报错三种）。go.mod 引入 goja（direct dep） |
 
 图例：✅ 完成  🔲 待做  🔧 进行中  ⚠️ 受阻
 

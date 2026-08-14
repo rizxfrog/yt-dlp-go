@@ -9,9 +9,12 @@ downloader engine.
 > template engine (`-o`), native HTTP / HLS / DASH downloaders with resume, rate
 > limiting and retry, an ffmpeg postprocessor collection, subtitle download, a
 > playlist + concurrent multi-URL pipeline, and a curated extractor set
-> (YouTube, Bilibili, TikTok, Acast, and a direct-URL fallback). The default
-> build uses the **Go standard library only** so it compiles offline; an optional
-> `-tags utls` build adds real TLS ClientHello impersonation.
+> (YouTube, Bilibili, TikTok, Acast, and a direct-URL fallback). The engine is
+> built on the **Go standard library** plus a few small, pure-Go dependencies:
+> `github.com/dop251/goja` (an embedded ECMAScript engine) evaluates YouTube's
+> signature transform exactly as written, and an optional `-tags utls` build adds
+> real TLS ClientHello impersonation. All dependencies are pure Go, so the binary
+> still compiles without cgo.
 
 ## Why a foundation and not the full 225k-line port?
 
@@ -51,7 +54,7 @@ a URL to the first extractor whose `Match()` returns true.
 
 ## Build & run
 
-Requires Go 1.22+.
+Requires Go 1.25+.
 
 ```bash
 cd yt-dlp-go
@@ -61,10 +64,11 @@ go build -o yt-dlp-go .                 # stdlib-only build (default)
 go build -tags utls -o yt-dlp-go-utls .
 ```
 
-> **Note on module downloads.** The default build needs no external modules.
-> The `utls` build pulls `github.com/refraction-networking/utls`. If the default
-> Go proxy is unreachable, use a mirror, e.g.
-> `GOPROXY=https://goproxy.cn,direct GOSUMDB=off go get github.com/refraction-networking/utls`.
+> **Note on module downloads.** The core build pulls `github.com/dop251/goja`
+> (pure Go) and, for the optional impersonation build,
+> `github.com/refraction-networking/utls`. If the default Go proxy is unreachable,
+> use a mirror, e.g.
+> `GOPROXY=https://goproxy.cn,direct GOSUMDB=off go get github.com/dop251/goja github.com/refraction-networking/utls`.
 
 ```bash
 ./yt-dlp-go --version
@@ -104,8 +108,8 @@ go build -tags utls -o yt-dlp-go-utls .
 - **Options**: `--download-archive`, `--no-overwrite`, `--dateafter/before`,
   `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, proxy, cookies,
   impersonation, retries, etc.
-- **Extractors**: YouTube (incl. ciphered-signature deobfuscation via the
-  pure-Go evaluator + caption extraction), **Bilibili** (metadata from
+- **Extractors**: YouTube (incl. ciphered-signature deobfuscation evaluated in
+  an embedded `goja` JS engine + caption extraction), **Bilibili** (metadata from
   `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
   **TikTok** (og:video meta + `__NEXT_DATA__`), Acast, and a direct-URL
   generic fallback.
@@ -128,12 +132,13 @@ go test -tags utls ./network/   # only with the utls build
    their parsing functions are unit-tested, but live behaviour may drift (as with
    upstream yt-dlp). Bilibili media URLs additionally require the WBI-signed
    `playurl` API, which needs a live session.
-2. **Signature deobfuscation robustness.** `extractor.DeobfuscateSignature`
-   uses yt-dlp's classic regex-based transform extraction. Modern YouTube changes
-   this frequently. *Recommended upgrade:* embed
-   [`github.com/dop251/goja`](https://github.com/dop251/goja) (a pure-Go
-   ECMAScript engine) and evaluate the player function directly —
-   `DeobfuscateSignature` is the exact seam to swap.
+2. **Signature deobfuscation (done).** `extractor.DeobfuscateSignature` now
+   evaluates the player's transform function in an embedded `goja` ECMAScript
+   engine (pure Go), so the obfuscation runs exactly as YouTube wrote it; the
+   previous regex/classify pipeline is retained as a best-effort fallback.
+   *Possible further hardening:* also evaluate the `n`-function / `nsig` transform
+   and feed `clientVariables`/`player`'s `sts` into the call, which goja already
+   supports.
 3. **Extractor coverage.** More sites can be added by copying the shape of
    `extractor/acast` / `extractor/bilibili` and calling `extractor.Register`
    from `init()`. Aim for a curated, well-tested subset rather than all 2000.
