@@ -77,6 +77,13 @@ func selectOne(formats []extractor.Format, spec string) ([][]extractor.Format, e
 // selectMerge handles a "+"-joined merge expression.
 func selectMerge(formats []extractor.Format, expr string) ([]extractor.Format, error) {
 	parts := strings.Split(expr, "+")
+	// A single "best"/"worst" (optionally filtered) token is an alias for merging
+	// the best video and audio streams — handle it before the generic path.
+	if len(parts) == 1 {
+		if g, ok := selectBestAlias(formats, strings.TrimSpace(parts[0])); ok {
+			return g, nil
+		}
+	}
 	group := make([]extractor.Format, 0, len(parts))
 	for _, p := range parts {
 		f, err := resolveOne(formats, strings.TrimSpace(p))
@@ -92,6 +99,48 @@ func selectMerge(formats []extractor.Format, expr string) ([]extractor.Format, e
 		return nil, nil
 	}
 	return group, nil
+}
+
+// selectBestAlias resolves the "best"/"worst" selectors (and their filtered
+// forms "best[...]"/"worst[...]"). In yt-dlp these expand to a merge of the best
+// video and best audio streams, which is what DASH / separate-stream sources
+// (YouTube, Bilibili, …) actually expose. When a source has no separate streams
+// we fall back to a single combined (video+audio) format.
+func selectBestAlias(formats []extractor.Format, tok string) ([]extractor.Format, bool) {
+	var isWorst bool
+	var rest string
+	switch {
+	case tok == "best":
+		isWorst, rest = false, ""
+	case strings.HasPrefix(tok, "best["):
+		isWorst, rest = false, tok[4:]
+	case tok == "worst":
+		isWorst, rest = true, ""
+	case strings.HasPrefix(tok, "worst["):
+		isWorst, rest = true, tok[5:]
+	default:
+		return nil, false
+	}
+	vSel, aSel := "bestvideo"+rest, "bestaudio"+rest
+	if isWorst {
+		vSel, aSel = "worstvideo"+rest, "worstaudio"+rest
+	}
+	v, _ := resolveOne(formats, vSel)
+	a, _ := resolveOne(formats, aSel)
+	if v != nil && a != nil {
+		return []extractor.Format{*v, *a}, true
+	}
+	// Fallback: a single combined (video+audio) format.
+	if isWorst {
+		if c := pickWorst(formats, kindCombined); c != nil {
+			return []extractor.Format{*c}, true
+		}
+	} else {
+		if c := pickBest(formats, kindCombined); c != nil {
+			return []extractor.Format{*c}, true
+		}
+	}
+	return nil, true
 }
 
 // resolveOne resolves a single selector token (name + optional [filters]).

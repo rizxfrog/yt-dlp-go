@@ -445,7 +445,13 @@ func (y *YoutubeDL) outputBase(info *extractor.Info) string {
 	if y.Opts.OutputTemplate != "" {
 		name, err := output.Render(y.Opts.OutputTemplate, info)
 		if err == nil && name != "" {
-			return filepath.Join(dir, output.Sanitize(name))
+			// If the template already embedded the extension via %(ext)s, drop
+			// that trailing extension so the per-format extension (e.g. m4s) is
+			// not appended a second time by outPath.
+			if info.Ext != "" && strings.HasSuffix(name, "."+info.Ext) {
+				name = strings.TrimSuffix(name, "."+info.Ext)
+			}
+			return filepath.Join(dir, output.SanitizePath(name))
 		}
 		// On template error, fall through to the default naming.
 	}
@@ -453,7 +459,7 @@ func (y *YoutubeDL) outputBase(info *extractor.Info) string {
 	if name == "" {
 		name = info.ID
 	}
-	return filepath.Join(dir, output.Sanitize(name))
+	return filepath.Join(dir, output.SanitizePath(name))
 }
 
 func outPath(base, kind, ext string) string {

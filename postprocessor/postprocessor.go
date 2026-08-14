@@ -62,7 +62,10 @@ func Merge(video, audio, output, container, ffmpeg string) error {
 	if audio != "" {
 		args = append(args, "-i", audio)
 	}
-	args = append(args, "-c", "copy", "-f", container, output)
+	// Do not force the muxer with -f: ffmpeg infers it from the output file
+	// extension (which always matches `container`), and some builds reject short
+	// aliases such as "mkv" (matroska). Copy streams without re-encoding.
+	args = append(args, "-c", "copy", output)
 	return Exec(ffmpeg, args...)
 }
 

@@ -132,11 +132,15 @@ go test -tags utls ./network/   # only with the utls build
 
 ## Known limitations / next steps
 
-1. **Real-site extraction needs online verification.** YouTube / Bilibili /
-   TikTok internals change often; the extractors are structurally faithful and
-   their parsing functions are unit-tested, but live behaviour may drift (as with
-   upstream yt-dlp). Bilibili media URLs additionally require the WBI-signed
-   `playurl` API, which needs a live session.
+1. **Bilibili is real-verified end-to-end** (tested in this sandbox against a live
+   `BV` URL): `window.__INITIAL_STATE__` parsing → pure-Go WBI signing →
+   `x/player/wbi/playurl` DASH all work. A subscribed `best` download merges
+   separate video+audio streams through ffmpeg into a playable file. Mid-quality
+   (≤720p) streams need **no cookie**; high-quality (1080p+) requires a logged-in
+   `SESSDATA` cookie via `--cookies`. YouTube / TikTok internals still change often
+   and their live behaviour may drift (as with upstream yt-dlp) — their extractors
+   are structurally faithful and unit-tested, but have not been live-verified in
+   this environment (YouTube is unreachable from the sandbox).
 2. **Signature & n-parameter deobfuscation (done).** `extractor.DeobfuscateSignature`
    and `extractor.DeobfuscateNSig` both evaluate the player's transform functions
    in an embedded `goja` ECMAScript engine (pure Go), so the obfuscation runs

@@ -193,8 +193,23 @@ func formatDuration(sec float64, layout string) string {
 	return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 }
 
-// Sanitize replaces characters that are illegal in common filesystems.
+// Sanitize replaces characters that are illegal in common filesystems. The path
+// separators '/' and '\' ARE rewritten to '_', so this is only safe to apply to a
+// single filename component — see SanitizePath for whole paths.
 func Sanitize(s string) string {
 	r := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
 	return r.Replace(s)
+}
+
+// SanitizePath sanitizes a full output path while preserving directory
+// separators, so templates such as "%(uploader)s/%(id)s.%(ext)s" keep their
+// subdirectories instead of having '/' rewritten to '_'. Each path segment is
+// cleaned individually; the separators themselves are left intact.
+func SanitizePath(p string) string {
+	split := func(r rune) bool { return r == '/' || r == '\\' }
+	parts := strings.FieldsFunc(p, split)
+	for i, part := range parts {
+		parts[i] = Sanitize(part)
+	}
+	return strings.Join(parts, "/")
 }

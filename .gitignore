@@ -8,6 +8,9 @@
 # Test / coverage output
 *.test
 coverage.out
+
+# Downloaded media (real network test output)
+_dltest/
 coverage.html
 
 # Editor / IDE

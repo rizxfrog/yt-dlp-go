@@ -44,9 +44,9 @@ func TestSelect_Best(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// best combined: id 22 (720p) outranks id 18 (360p) by quality.
-	if got := ids(g); !reflect.DeepEqual(got, [][]string{{"22"}}) {
-		t.Fatalf("best = %v, want [[22]]", got)
+	// best == bestvideo+bestaudio merge: 137 (1080p) + 251 (best audio).
+	if got := ids(g); !reflect.DeepEqual(got, [][]string{{"137", "251"}}) {
+		t.Fatalf("best = %v, want [[137 251]]", got)
 	}
 }
 
@@ -137,9 +137,9 @@ func TestSelect_Worst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// worst combined: only "18" and "22" are combined; 18 is smaller.
-	if got := ids(g); !reflect.DeepEqual(got, [][]string{{"18"}}) {
-		t.Fatalf("worst = %v, want [[18]]", got)
+	// worst == worstvideo+worstaudio merge: 92 (240p) + 140 (worst audio).
+	if got := ids(g); !reflect.DeepEqual(got, [][]string{{"92", "140"}}) {
+		t.Fatalf("worst = %v, want [[92 140]]", got)
 	}
 }
 
