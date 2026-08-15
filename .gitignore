@@ -29,3 +29,6 @@ Thumbs.db
 /.gocache/
 /.gopath/
 /.workbuddy/
+
+# Partial download artifacts
+*.part
