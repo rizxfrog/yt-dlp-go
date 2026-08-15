@@ -170,7 +170,7 @@ func (y *YoutubeDL) processInfo(info *extractor.Info) error {
 		return nil
 	}
 
-	groups, err := format.Select(info.Formats, y.Opts.Format)
+	groups, err := format.Select(info.Formats, y.Opts.Format, y.Opts.FormatSort)
 	if err != nil {
 		return err
 	}

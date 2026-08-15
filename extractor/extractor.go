@@ -25,19 +25,27 @@ import (
 
 // Format describes one available media representation.
 type Format struct {
-	FormatID    string
-	URL         string // direct media URL (for progressive/HTTP)
-	ManifestURL string // m3u8/m3u8 manifest URL (for HLS/DASH)
-	Protocol    string
-	Ext         string
-	VCodec      string
-	ACodec      string
-	Width       int
-	Height      int
-	FPS         float64
-	Filesize    int64
-	FormatNote  string
-	TBR         float64 // total bitrate kbps
+	FormatID        string
+	URL             string // direct media URL (for progressive/HTTP)
+	ManifestURL     string // m3u8/m3u8 manifest URL (for HLS/DASH)
+	Protocol        string
+	Ext             string
+	VCodec          string
+	ACodec          string
+	Width           int
+	Height          int
+	FPS             float64
+	Filesize        int64
+	FormatNote      string
+	TBR             float64 // total bitrate kbps
+	VBR             float64 // video bitrate kbps (0 if unknown)
+	ABR             float64 // audio bitrate kbps (0 if unknown)
+	AudioSampleRate int     // asr, Hz (0 if unknown)
+	AudioChannels   int     // audio channels (0 if unknown)
+	DynamicRange    string  // SDR / HDR10 / HLG / DOLBY_VISION ("" if unknown)
+	Source          string  // provenance: web / dash / hls / http ("" if unknown)
+	Language        string  // track language tag ("" if unknown)
+	Preference      int     // extractor-assigned preference (higher = better)
 }
 
 // Info is the normalised extraction result.

@@ -29,15 +29,21 @@ import (
 )
 
 // Select evaluates the selector against formats and returns the chosen groups.
-// An empty selector defaults to "best".
-func Select(formats []extractor.Format, selector string) ([][]extractor.Format, error) {
+// An empty selector defaults to "best". An optional sortSpec (-S / --format-sort)
+// reorders the formats first and is then honoured by the best/worst aliases, so
+// "best" under "-S res,fps" yields the top format after that sort.
+func Select(formats []extractor.Format, selector string, sortSpec ...string) ([][]extractor.Format, error) {
 	selector = strings.TrimSpace(selector)
 	if selector == "" {
 		selector = "best"
 	}
+	var order []extractor.Format
+	if len(sortSpec) > 0 && strings.TrimSpace(sortSpec[0]) != "" {
+		order = Sort(formats, sortSpec[0])
+	}
 	var result [][]extractor.Format
 	for _, out := range strings.Split(selector, ",") {
-		group, err := selectOne(formats, out)
+		group, err := selectOne(formats, order, out)
 		if err != nil {
 			return nil, err
 		}
@@ -52,14 +58,14 @@ func Select(formats []extractor.Format, selector string) ([][]extractor.Format, 
 }
 
 // selectOne handles a single comma-separated spec, supporting "/" fallback.
-func selectOne(formats []extractor.Format, spec string) ([][]extractor.Format, error) {
+func selectOne(formats, order []extractor.Format, spec string) ([][]extractor.Format, error) {
 	var lastErr error
 	for _, candidate := range strings.Split(spec, "/") {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {
 			continue
 		}
-		group, err := selectMerge(formats, candidate)
+		group, err := selectMerge(formats, order, candidate)
 		if err != nil {
 			lastErr = err
 			continue
@@ -75,18 +81,18 @@ func selectOne(formats []extractor.Format, spec string) ([][]extractor.Format, e
 }
 
 // selectMerge handles a "+"-joined merge expression.
-func selectMerge(formats []extractor.Format, expr string) ([]extractor.Format, error) {
+func selectMerge(formats, order []extractor.Format, expr string) ([]extractor.Format, error) {
 	parts := strings.Split(expr, "+")
 	// A single "best"/"worst" (optionally filtered) token is an alias for merging
 	// the best video and audio streams — handle it before the generic path.
 	if len(parts) == 1 {
-		if g, ok := selectBestAlias(formats, strings.TrimSpace(parts[0])); ok {
+		if g, ok := selectBestAlias(formats, order, strings.TrimSpace(parts[0])); ok {
 			return g, nil
 		}
 	}
 	group := make([]extractor.Format, 0, len(parts))
 	for _, p := range parts {
-		f, err := resolveOne(formats, strings.TrimSpace(p))
+		f, err := resolveOne(formats, order, strings.TrimSpace(p))
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +112,7 @@ func selectMerge(formats []extractor.Format, expr string) ([]extractor.Format, e
 // video and best audio streams, which is what DASH / separate-stream sources
 // (YouTube, Bilibili, …) actually expose. When a source has no separate streams
 // we fall back to a single combined (video+audio) format.
-func selectBestAlias(formats []extractor.Format, tok string) ([]extractor.Format, bool) {
+func selectBestAlias(formats, order []extractor.Format, tok string) ([]extractor.Format, bool) {
 	var isWorst bool
 	var rest string
 	switch {
@@ -125,13 +131,17 @@ func selectBestAlias(formats []extractor.Format, tok string) ([]extractor.Format
 	if isWorst {
 		vSel, aSel = "worstvideo"+rest, "worstaudio"+rest
 	}
-	v, _ := resolveOne(formats, vSel)
-	a, _ := resolveOne(formats, aSel)
+	v, _ := resolveOne(formats, order, vSel)
+	a, _ := resolveOne(formats, order, aSel)
 	if v != nil && a != nil {
 		return []extractor.Format{*v, *a}, true
 	}
 	// Fallback: a single combined (video+audio) format.
-	if isWorst {
+	if order != nil {
+		if c := bestByOrder(order, formats, kindCombined); c != nil {
+			return []extractor.Format{*c}, true
+		}
+	} else if isWorst {
 		if c := pickWorst(formats, kindCombined); c != nil {
 			return []extractor.Format{*c}, true
 		}
@@ -144,7 +154,7 @@ func selectBestAlias(formats []extractor.Format, tok string) ([]extractor.Format
 }
 
 // resolveOne resolves a single selector token (name + optional [filters]).
-func resolveOne(formats []extractor.Format, token string) (*extractor.Format, error) {
+func resolveOne(formats, order []extractor.Format, token string) (*extractor.Format, error) {
 	name, conds, err := splitFilter(token)
 	if err != nil {
 		return nil, err
@@ -152,16 +162,34 @@ func resolveOne(formats []extractor.Format, token string) (*extractor.Format, er
 	pool := applyFilters(formats, conds)
 	switch name {
 	case "", "best":
+		if order != nil {
+			return bestByOrder(order, pool, kindCombined), nil
+		}
 		return pickBest(pool, kindCombined), nil
 	case "worst":
+		if order != nil {
+			return worstByOrder(order, pool, kindCombined), nil
+		}
 		return pickWorst(pool, kindCombined), nil
 	case "bestvideo":
+		if order != nil {
+			return bestByOrder(order, pool, kindVideo), nil
+		}
 		return pickBest(pool, kindVideo), nil
 	case "worstvideo":
+		if order != nil {
+			return worstByOrder(order, pool, kindVideo), nil
+		}
 		return pickWorst(pool, kindVideo), nil
 	case "bestaudio":
+		if order != nil {
+			return bestByOrder(order, pool, kindAudio), nil
+		}
 		return pickBest(pool, kindAudio), nil
 	case "worstaudio":
+		if order != nil {
+			return worstByOrder(order, pool, kindAudio), nil
+		}
 		return pickWorst(pool, kindAudio), nil
 	case "all":
 		if len(pool) == 0 {
@@ -291,8 +319,24 @@ func fieldValue(f extractor.Format, field string) string {
 		return strconv.Itoa(f.Height)
 	case "width":
 		return strconv.Itoa(f.Width)
-	case "tbr", "vbr", "abr":
+	case "tbr", "br":
 		return strconv.FormatFloat(f.TBR, 'f', -1, 64)
+	case "vbr":
+		return strconv.FormatFloat(f.VBR, 'f', -1, 64)
+	case "abr":
+		return strconv.FormatFloat(f.ABR, 'f', -1, 64)
+	case "asr":
+		return strconv.Itoa(f.AudioSampleRate)
+	case "channels":
+		return strconv.Itoa(f.AudioChannels)
+	case "dynamic_range", "dr", "hdr":
+		return f.DynamicRange
+	case "source":
+		return f.Source
+	case "lang":
+		return f.Language
+	case "pref", "preference":
+		return strconv.Itoa(f.Preference)
 	case "fps":
 		return strconv.FormatFloat(f.FPS, 'f', -1, 64)
 	case "filesize":
@@ -420,4 +464,45 @@ func itagOf(f extractor.Format) int {
 		return -1
 	}
 	return n
+}
+
+// inPool reports whether f (an element of the sorted order) is also present in
+// pool (the filtered subset). Formats are compared by identity triple because
+// applyFilters returns value copies, not the same backing elements.
+func inPool(pool []extractor.Format, f extractor.Format) bool {
+	for i := range pool {
+		if pool[i].FormatID == f.FormatID &&
+			pool[i].URL == f.URL &&
+			pool[i].Protocol == f.Protocol &&
+			pool[i].VCodec == f.VCodec &&
+			pool[i].ACodec == f.ACodec {
+			return true
+		}
+	}
+	return false
+}
+
+// bestByOrder returns the first format in order (highest-ranked) that matches
+// kind and is also in pool. Used when a -S sort order is active so the "best"
+// alias picks the top-ranked format rather than recomputing by quality().
+func bestByOrder(order, pool []extractor.Format, k kind) *extractor.Format {
+	for i := range order {
+		if matchesKind(order[i], k) && inPool(pool, order[i]) {
+			f := order[i]
+			return &f
+		}
+	}
+	return nil
+}
+
+// worstByOrder returns the last (lowest-ranked) format in order matching kind
+// and pool.
+func worstByOrder(order, pool []extractor.Format, k kind) *extractor.Format {
+	for i := len(order) - 1; i >= 0; i-- {
+		if matchesKind(order[i], k) && inPool(pool, order[i]) {
+			f := order[i]
+			return &f
+		}
+	}
+	return nil
 }

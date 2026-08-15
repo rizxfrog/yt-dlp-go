@@ -298,14 +298,18 @@ func extractSubtitles(player map[string]any) map[string][]extractor.Subtitle {
 // buildFormat turns a single streamingData format object into a Format.
 func buildFormat(m map[string]any, playerJS string, jsErr error, sts string, ctx *extractor.Context) (extractor.Format, error) {
 	f := extractor.Format{
-		FormatID:   fmt.Sprintf("%d", extractor.IntOrNone(m["itag"])),
-		VCodec:     mimeVideoCodec(extractor.StrOrNone(m["mimeType"])),
-		ACodec:     mimeAudioCodec(extractor.StrOrNone(m["mimeType"])),
-		Width:      extractor.IntOrNone(m["width"]),
-		Height:     extractor.IntOrNone(m["height"]),
-		Filesize:   int64(extractor.FloatOrNone(m["contentLength"])),
-		FormatNote: extractor.StrOrNone(m["qualityLabel"]),
-		TBR:        extractor.FloatOrNone(m["bitrate"]) / 1000,
+		FormatID:        fmt.Sprintf("%d", extractor.IntOrNone(m["itag"])),
+		VCodec:          mimeVideoCodec(extractor.StrOrNone(m["mimeType"])),
+		ACodec:          mimeAudioCodec(extractor.StrOrNone(m["mimeType"])),
+		Width:           extractor.IntOrNone(m["width"]),
+		Height:          extractor.IntOrNone(m["height"]),
+		Filesize:        int64(extractor.FloatOrNone(m["contentLength"])),
+		FormatNote:      extractor.StrOrNone(m["qualityLabel"]),
+		TBR:             extractor.FloatOrNone(m["bitrate"]) / 1000,
+		AudioSampleRate: extractor.IntOrNone(m["audioSampleRate"]),
+		AudioChannels:   extractor.IntOrNone(m["audioChannels"]),
+		DynamicRange:    youtubeDynamicRange(m),
+		Source:          "dash",
 	}
 
 	// Direct URL (unciphered progressive/adaptive).
@@ -352,6 +356,24 @@ func buildFormat(m map[string]any, playerJS string, jsErr error, sts string, ctx
 	f.Protocol, f.Ext = classifyURL(f.URL, extractor.StrOrNone(m["mimeType"]))
 	f.URL = rewriteNParam(playerJS, jsErr, f.URL)
 	return f, nil
+}
+
+// youtubeDynamicRange reports the dynamic-range label for a streamingData format
+// object, used by --format-sort (hdr/dynamic_range). It detects HDR via the
+// qualityLabel suffix (e.g. "1080p60 HDR") and the dynamicRangeInfo blob.
+func youtubeDynamicRange(m map[string]any) string {
+	if dr := extractor.StrOrNone(m["dynamicRange"]); dr != "" {
+		return strings.ToUpper(dr)
+	}
+	if dri, ok := m["dynamicRangeInfo"].(map[string]any); ok {
+		if v := extractor.StrOrNone(dri["dynamicRange"]); v != "" {
+			return strings.ToUpper(v)
+		}
+	}
+	if strings.Contains(strings.ToUpper(extractor.StrOrNone(m["qualityLabel"])), "HDR") {
+		return "HDR10"
+	}
+	return ""
 }
 
 // rewriteNParam deobfuscates a format URL's n (throttling) query parameter via

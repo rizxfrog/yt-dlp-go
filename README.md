@@ -168,6 +168,14 @@ go test -tags utls ./network/   # only with the utls build
    from `init()`. Aim for a curated, well-tested subset rather than all 2000.
 5. **Postprocessors.** SponsorBlock, more fixups, and richer metadata mapping
    remain incremental additions.
+6. **Format sorting (`-S` / `--format-sort`) is implemented** in the `format`
+   package: a multi-key stable sort (res, width, fps, tbr/vbr/abr, size, asr,
+   channels, proto, source, ext, vcodec/acodec/codec with `codec:vp9.2` style
+   preferences, dynamic_range/hdr, lang, id, has_audio/has_video, quality, pref)
+   with `+`/`-` direction and `!` reverse modifiers. When given, `Select` honours
+   the sorted order so `best`/`bestvideo`/`bestaudio` pick the top-ranked format.
+   Unit-tested; the binary builds and parses the flag (live YouTube fetch is
+   environment-dependent).
 
 ## License
 

@@ -18,6 +18,7 @@ import (
 type Options struct {
 	// Selection / output
 	Format            string // -f / --format
+	FormatSort        string // -S / --format-sort (e.g. res,fps,codec:vp9.2)
 	OutputTemplate    string // -o / --output
 	OutputDir         string // -P / --paths
 	MergeOutputFormat string // --merge-output-format
@@ -112,6 +113,8 @@ func Parse(args []string) (*Options, []string, error) {
 
 	fs.StringVar(&o.Format, "f", o.Format, "video format selector (e.g. best, worst, bestvideo+bestaudio)")
 	fs.StringVar(&o.Format, "format", o.Format, "alias of -f")
+	fs.StringVar(&o.FormatSort, "S", "", "sort formats by a comma-separated key list (e.g. res,fps,codec:vp9.2)")
+	fs.StringVar(&o.FormatSort, "format-sort", "", "alias of -S")
 	fs.StringVar(&o.OutputTemplate, "o", "", "output filename template")
 	fs.StringVar(&o.OutputTemplate, "output", "", "alias of -o")
 	fs.StringVar(&o.OutputDir, "P", "", "base directory for output files")

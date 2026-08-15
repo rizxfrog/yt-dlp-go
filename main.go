@@ -59,6 +59,7 @@ Supported sites: YouTube, Bilibili, TikTok, Acast, and direct media URLs.
 
 Options (subset of yt-dlp):
   -f, --format FMT          format selector (best, worst, bestvideo+bestaudio, itag, [filter])
+  -S, --format-sort KEYS    sort formats (res,fps,tbr,size,proto,codec:vp9.2,ext,...)
   -o, --output TEMPLATE     output filename template (%(title)s.%(ext)s, defaults, dates)
   -P, --paths DIR           base directory for output files
   --merge-output-format FMT container for merged outputs (mkv/mp4)
