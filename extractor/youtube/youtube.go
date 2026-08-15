@@ -1,20 +1,26 @@
-// Package youtube implements an InfoExtractor for YouTube. It demonstrates the
-// hardest part of any such tool: parsing ytInitialPlayerResponse, detecting
-// ciphered (signature-protected) streams, fetching the player JavaScript, and
-// deobfuscating the signature with the pure-Go evaluator in the extractor
-// package.
+// Package youtube implements an InfoExtractor for YouTube.
 //
-// Live YouTube internals change often; this is a faithful structural port. If
-// signature deobfuscation fails against the current site, the engine reports the
-// limitation rather than crashing, and the recommended fix is to back
-// DeobfuscateSignature with an embedded JS engine (goja).
+// Stream URLs are obtained from the InnerTube player API (see innertube.go),
+// because the watch page's ytInitialPlayerResponse now ships formats with
+// metadata only — no "url" and no "signatureCipher". The webpage is still used
+// for the visitor id, metadata, subtitles, and as a fallback format source.
+//
+// The ciphered path is retained for that fallback: it detects
+// signature-protected streams, fetches the player JavaScript, and deobfuscates
+// the signature (and the "n" throttling parameter) with the goja-backed
+// evaluator in the extractor package.
+//
+// Live YouTube internals change often; this mirrors yt-dlp's own structure and
+// client table so it can be re-synced when upstream adapts.
 package youtube
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -43,6 +49,12 @@ func extractVideoID(u string) string {
 }
 
 // Extract performs the full extraction.
+//
+// Formats come from the InnerTube player API first (see innertube.go for the
+// rationale): the watch page's ytInitialPlayerResponse no longer carries stream
+// URLs. The webpage is still fetched, because it supplies the visitor id the API
+// requires plus metadata/subtitles, and its player response stays as the last
+// fallback — it is the one that can still carry signatureCipher formats.
 func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Info, error) {
 	videoID := extractVideoID(pageURL)
 	if videoID == "" {
@@ -54,23 +66,52 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 		return nil, err
 	}
 
-	player, err := extractJSONAssign(html, "ytInitialPlayerResponse")
+	// A missing webpage player response is no longer fatal: formats and metadata
+	// both have API sources now.
+	htmlPlayer, htmlPlayerErr := extractJSONAssign(html, "ytInitialPlayerResponse")
+	visitorData := extractVisitorData(html)
+	verbosef(ctx, "[youtube] webpage %d bytes, visitorData %d chars, webpage player response ok=%v\n",
+		len(html), len(visitorData), htmlPlayerErr == nil)
+
+	player, clientLabel, err := resolvePlayerResponse(ctx, videoID, visitorData, htmlPlayer)
 	if err != nil {
 		return nil, err
 	}
+	verbosef(ctx, "[youtube] formats sourced from client %q\n", clientLabel)
 
-	details := extractor.TraverseObj(player, "videoDetails")
-	title := extractor.StrOrNone(extractor.TraverseObj(details, "title"))
-	if title == "" {
-		title = extractor.StrOrNone(extractor.TraverseObj(player, "microformat", "playerMicroformatRenderer", "title", "simpleText"))
+	// Metadata and subtitles: prefer the chosen response, fall back to the
+	// webpage's (the lean app clients omit captions and some microformat data).
+	sources := []map[string]any{player}
+	if htmlPlayerErr == nil && htmlPlayer != nil {
+		sources = append(sources, htmlPlayer)
 	}
-	lengthStr := extractor.StrOrNone(extractor.TraverseObj(details, "lengthSeconds"))
+
+	title := firstNonEmpty(sources, func(p map[string]any) string {
+		if t := extractor.StrOrNone(extractor.TraverseObj(p, "videoDetails", "title")); t != "" {
+			return t
+		}
+		return extractor.StrOrNone(extractor.TraverseObj(p,
+			"microformat", "playerMicroformatRenderer", "title", "simpleText"))
+	})
+	lengthStr := firstNonEmpty(sources, func(p map[string]any) string {
+		return extractor.StrOrNone(extractor.TraverseObj(p, "videoDetails", "lengthSeconds"))
+	})
 
 	// Signature timestamp: passed as the second argument to the signature
-	// transform by modern player builds.
-	sts := ""
-	if raw := extractor.TraverseObj(player, "sts"); raw != nil {
-		sts = fmt.Sprintf("%v", raw)
+	// transform by modern player builds. Only used on the ciphered fallback path.
+	sts := firstNonEmpty(sources, func(p map[string]any) string {
+		if raw := extractor.TraverseObj(p, "sts"); raw != nil {
+			return fmt.Sprintf("%v", raw)
+		}
+		return ""
+	})
+
+	subs := map[string][]extractor.Subtitle{}
+	for _, p := range sources {
+		if s := extractSubtitles(p); len(s) > 0 {
+			subs = s
+			break
+		}
 	}
 
 	info := &extractor.Info{
@@ -78,56 +119,29 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 		Title:      title,
 		WebpageURL: pageURL,
 		Ext:        "mp4",
-		Subtitles:  extractSubtitles(player),
+		Subtitles:  subs,
 		Raw:        player,
 	}
 	if d, e := strconv.ParseFloat(lengthStr, 64); e == nil {
 		info.Duration = d
 	}
 
-	var streaming any
-	if s := extractor.TraverseObj(player, "streamingData"); s != nil {
-		streaming = s
-	}
-	if streaming == nil {
-		// Age-restricted / bot-challenged pages omit streamingData.
-		return nil, fmt.Errorf("no streamingData (video may be age-restricted or require consent)")
+	formats := collectRawFormats(player)
+	if len(formats) == 0 {
+		return nil, fmt.Errorf("no streamingData formats in the %q player response "+
+			"(video may be age-restricted or require consent)", clientLabel)
 	}
 
-	// Collect both progressive and adaptive formats.
-	formats := []any{}
-	if f := extractor.TraverseObj(streaming, "formats"); f != nil {
-		if arr, ok := f.([]any); ok {
-			formats = append(formats, arr...)
-		}
-	}
-	if f := extractor.TraverseObj(streaming, "adaptiveFormats"); f != nil {
-		if arr, ok := f.([]any); ok {
-			formats = append(formats, arr...)
-		}
-	}
-
-	// Fetch the player JS once (needed if any format is ciphered, or carries an
-	// n throttling parameter that must be deobfuscated).
+	// Fetch the player JS once, and only when something actually needs it. The
+	// default clients hand back plain URLs, so this is normally skipped.
 	var playerJS string
 	var jsErr error
-	needsJS := false
-	for _, f := range formats {
-		if m, ok := f.(map[string]any); ok {
-			if extractor.StrOrNone(m["signatureCipher"]) != "" || extractor.StrOrNone(m["cipher"]) != "" {
-				needsJS = true
-				break
-			}
-			if u := extractor.StrOrNone(m["url"]); strings.Contains(u, "n=") {
-				needsJS = true
-				break
-			}
-		}
-	}
-	if needsJS {
+	if formatsNeedJS(formats) {
 		playerJS, jsErr = fetchPlayerJS(ctx, html)
+		verbosef(ctx, "[youtube] player JS: %d bytes, err=%v\n", len(playerJS), jsErr)
 	}
 
+	skipped := map[string]int{}
 	for _, f := range formats {
 		m, ok := f.(map[string]any)
 		if !ok {
@@ -135,16 +149,124 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 		}
 		fmtObj, err := buildFormat(m, playerJS, jsErr, sts, ctx)
 		if err != nil {
-			// Skip formats we cannot resolve rather than aborting the whole run.
+			// Skip formats we cannot resolve rather than aborting the whole run,
+			// but remember why so a total failure stays explainable.
+			skipped[err.Error()]++
+			verbosef(ctx, "[youtube] skip itag %v: %v\n", m["itag"], err)
 			continue
 		}
 		info.Formats = append(info.Formats, fmtObj)
 	}
 
 	if len(info.Formats) == 0 {
-		return nil, fmt.Errorf("no resolvable formats found")
+		return nil, fmt.Errorf("no resolvable formats found (client %q): %s",
+			clientLabel, summarizeSkips(len(formats), skipped))
 	}
 	return info, nil
+}
+
+// resolvePlayerResponse asks each default InnerTube client in turn for a player
+// response that actually carries usable formats, then falls back to the
+// webpage's own player response. The returned label identifies the source and is
+// used in log and error messages.
+func resolvePlayerResponse(ctx *extractor.Context, videoID, visitorData string,
+	htmlPlayer map[string]any) (map[string]any, string, error) {
+
+	var problems []string
+	for _, label := range defaultPlayerClients {
+		client, ok := innertubeClients[label]
+		if !ok {
+			continue
+		}
+		player, err := playerAPIFn(ctx, client, videoID, visitorData)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("%s: request failed: %v", label, err))
+			verbosef(ctx, "[youtube] client %s: request failed: %v\n", label, err)
+			continue
+		}
+		if perr := playabilityError(player); perr != nil {
+			problems = append(problems, fmt.Sprintf("%s: %v", label, perr))
+			verbosef(ctx, "[youtube] client %s: %v\n", label, perr)
+			continue
+		}
+		raws := collectRawFormats(player)
+		if countResolvable(raws) == 0 {
+			problems = append(problems, fmt.Sprintf(
+				"%s: %d formats but none carried a URL or cipher (a PO token is likely required)",
+				label, len(raws)))
+			verbosef(ctx, "[youtube] client %s: %d formats, none resolvable\n", label, len(raws))
+			continue
+		}
+		return player, label, nil
+	}
+
+	// Last resort: the webpage's player response. Historically the only source,
+	// and still the one that can carry signatureCipher formats.
+	if htmlPlayer != nil {
+		raws := collectRawFormats(htmlPlayer)
+		if countResolvable(raws) > 0 {
+			return htmlPlayer, "webpage", nil
+		}
+		problems = append(problems, fmt.Sprintf(
+			"webpage: %d formats but none carried a URL or cipher", len(raws)))
+	}
+
+	return nil, "", fmt.Errorf("could not obtain playable formats from any client:\n  - %s",
+		strings.Join(problems, "\n  - "))
+}
+
+// formatsNeedJS reports whether any format requires the player JavaScript, i.e.
+// it is signature-ciphered or carries an "n" throttling parameter. The query is
+// parsed properly rather than substring-matched, so parameters that merely end
+// in "n" (fn=, sn=, ...) do not trigger a needless player download.
+func formatsNeedJS(formats []any) bool {
+	for _, f := range formats {
+		m, ok := f.(map[string]any)
+		if !ok {
+			continue
+		}
+		if extractor.StrOrNone(m["signatureCipher"]) != "" || extractor.StrOrNone(m["cipher"]) != "" {
+			return true
+		}
+		if u := extractor.StrOrNone(m["url"]); u != "" {
+			if pu, perr := url.Parse(u); perr == nil && pu.Query().Get("n") != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// firstNonEmpty returns the first non-empty value produced by get over sources.
+func firstNonEmpty(sources []map[string]any, get func(map[string]any) string) string {
+	for _, p := range sources {
+		if v := get(p); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// summarizeSkips renders the aggregated per-format skip reasons so that a total
+// extraction failure explains itself instead of just saying "no formats".
+func summarizeSkips(total int, skipped map[string]int) string {
+	if len(skipped) == 0 {
+		return fmt.Sprintf("%d formats present, none usable", total)
+	}
+	reasons := make([]string, 0, len(skipped))
+	for reason, n := range skipped {
+		reasons = append(reasons, fmt.Sprintf("%s (x%d)", reason, n))
+	}
+	sort.Strings(reasons)
+	return fmt.Sprintf("all %d formats skipped: %s", total, strings.Join(reasons, "; "))
+}
+
+// verbosef logs to stderr when -v/--verbose is set.
+func verbosef(ctx *extractor.Context, format string, args ...any) {
+	if ctx == nil || ctx.Options == nil || !ctx.Options.Verbose {
+		return
+	}
+	fmt.Fprintf(os.Stderr, format, args...)
 }
 
 // extractSubtitles pulls the caption tracks from the player response so they can

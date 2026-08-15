@@ -30,6 +30,34 @@ func TestHTTPDownload_Basic(t *testing.T) {
 	}
 }
 
+func TestHTTPDownload_CreatesParentDir(t *testing.T) {
+	// Regression: a -o template with a subdirectory (e.g. "%(id)s/%(title)s")
+	// must have its target directory created; otherwise the .part open fails with
+	// "The system cannot find the path specified".
+	body := []byte("payload written into a freshly created subdirectory")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(body)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "nested", "deeper", "out.bin")
+	if _, err := os.Stat(filepath.Dir(out)); !os.IsNotExist(err) {
+		t.Fatalf("precondition: parent dir should not exist yet")
+	}
+	err := (HTTPDownloader{}).Download(context.Background(), srv.URL, out, DownloadOpts{Retries: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, rerr := os.ReadFile(out)
+	if rerr != nil {
+		t.Fatalf("read downloaded file: %v", rerr)
+	}
+	if string(got) != string(body) {
+		t.Fatalf("got %q want %q", got, body)
+	}
+}
+
 func TestHTTPDownload_Resume(t *testing.T) {
 	content := []byte("0123456789ABCDEF") // 16 bytes
 	half := 8

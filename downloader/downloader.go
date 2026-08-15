@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +61,14 @@ func (HTTPDownloader) Download(ctx context.Context, url, outPath string, opts Do
 	retries := opts.Retries
 	if retries < 1 {
 		retries = 1
+	}
+	// Ensure the destination directory exists. Output templates may include
+	// subdirectories (e.g. "%(id)s/%(title)s"), and the .part file is opened
+	// below with os.OpenFile, which does not create parent dirs.
+	if dir := filepath.Dir(outPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("creating output directory %q: %w", dir, err)
+		}
 	}
 	part := outPath + ".part"
 

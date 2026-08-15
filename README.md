@@ -41,7 +41,7 @@ format/                 -f selection grammar (best/worst/+merge//fallback/[filte
 output/                 -o template engine (%(field)s, defaults, date, duration)
 postprocessor/          ffmpeg orchestration (merge / remux / extract-audio / metadata / subs)
 extractor/              Info/Format types, Extractor interface, registry, helpers, JS evaluator
-  /youtube              YouTube (ytInitialPlayerResponse + signature deobfuscation + captions)
+  /youtube              YouTube (InnerTube player API + sig/nsig deobfuscation + captions)
   /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl)
   /tiktok               TikTok (og:video meta + __NEXT_DATA__)
   /acast                Acast (JSON-API pattern)
@@ -108,13 +108,17 @@ go build -tags utls -o yt-dlp-go-utls .
 - **Options**: `--download-archive`, `--no-overwrite`, `--dateafter/before`,
   `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, proxy, cookies,
   impersonation, retries, etc.
-- **Extractors**: YouTube (incl. ciphered-signature deobfuscation **and** the `n`
-  throttling-parameter transform, both evaluated in an embedded `goja` JS engine;
-  the signature function receives the `sts` timestamp as its second argument, and
-  the `n` function is located by its **player call site** — the in-place
-  self-reassigning call `x = NAME(x)` (and the module form `x = (0, MOD.NAME)(x)`)
-  — rather than by guessing from body shape; plus caption extraction),
-  **Bilibili** (metadata from
+- **Extractors**: YouTube — stream URLs are taken from the **InnerTube player API**
+  (`POST /youtubei/v1/player`) rather than the watch page, because YouTube no
+  longer ships stream URLs in `ytInitialPlayerResponse` (its `adaptiveFormats`
+  carry only metadata now, which used to surface as `no resolvable formats found`).
+  The extractor tries spoofed clients in the order `visionos → android_vr → web`
+  and falls back to the webpage player response; `visionos`/`android_vr` return
+  plain, unciphered URLs that need **no JS engine**, so the goja evaluator is only
+  loaded for the rare ciphered fallback. Captions, the `sts`-stamped signature
+  transform and the `n` throttling transform (located by its **player call site**,
+  `x = NAME(x)` / the module form `x = (0, MOD.NAME)(x)`) are also supported via
+  the embedded `goja` engine. **Bilibili** (metadata from
   `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
   **TikTok** (og:video meta + `__NEXT_DATA__`), Acast, and a direct-URL
   generic fallback.
@@ -137,11 +141,19 @@ go test -tags utls ./network/   # only with the utls build
    `x/player/wbi/playurl` DASH all work. A subscribed `best` download merges
    separate video+audio streams through ffmpeg into a playable file. Mid-quality
    (≤720p) streams need **no cookie**; high-quality (1080p+) requires a logged-in
-   `SESSDATA` cookie via `--cookies`. YouTube / TikTok internals still change often
-   and their live behaviour may drift (as with upstream yt-dlp) — their extractors
-   are structurally faithful and unit-tested, but have not been live-verified in
-   this environment (YouTube is unreachable from the sandbox).
-2. **Signature & n-parameter deobfuscation (done).** `extractor.DeobfuscateSignature`
+   `SESSDATA` cookie via `--cookies`.
+2. **YouTube is now live-verified end-to-end** (this sandbox, via the corporate
+   proxy) using the InnerTube player API: the watch page no longer carries stream
+   URLs, so extraction goes through spoofed clients (`visionos`/`android_vr`/`web`),
+   which return plain URLs and need no JS engine. A `best` download merges 1080p
+   video + audio through ffmpeg into a playable file, and `-o` templates with
+   subdirectories (e.g. `%(id)s/%(title)s.%(ext)s`) now auto-create their target
+   directory (previously the `.part` open failed with "The system cannot find the
+   path specified"). **Cookies are not required** for these public-URL clients;
+   supplied account cookies may be silently stale (YouTube rotates them) — the
+   InnerTube path works without them, so ignore the "cookies no longer valid"
+   warning unless you specifically need age/restricted content.
+3. **Signature & n-parameter deobfuscation (done).** `extractor.DeobfuscateSignature`
    and `extractor.DeobfuscateNSig` both evaluate the player's transform functions
    in an embedded `goja` ECMAScript engine (pure Go), so the obfuscation runs
    exactly as YouTube wrote it; the previous regex/classify pipeline is retained
@@ -151,10 +163,10 @@ go test -tags utls ./network/   # only with the utls build
    form `x = (0, MOD.NAME)(x)`), resolved to its definition and validated, with a
    body-shape scan kept only as a last-resort fallback; if it cannot be evaluated
    the `n` query param is left unchanged so the download still proceeds.
-3. **Extractor coverage.** More sites can be added by copying the shape of
+4. **Extractor coverage.** More sites can be added by copying the shape of
    `extractor/acast` / `extractor/bilibili` and calling `extractor.Register`
    from `init()`. Aim for a curated, well-tested subset rather than all 2000.
-4. **Postprocessors.** SponsorBlock, more fixups, and richer metadata mapping
+5. **Postprocessors.** SponsorBlock, more fixups, and richer metadata mapping
    remain incremental additions.
 
 ## License

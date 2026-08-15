@@ -9,6 +9,7 @@
 package extractor
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -164,6 +165,51 @@ func DownloadJSON(ctx *Context, u string, headers map[string]string, query url.V
 	}
 	var v any
 	if err := json.Unmarshal(b, &v); err != nil {
+		return nil, fmt.Errorf("json decode: %w", err)
+	}
+	return v, nil
+}
+
+// PostJSON sends a JSON body via POST and unmarshals the JSON response.
+//
+// Needed by API-driven extractors: YouTube's InnerTube endpoints
+// (/youtubei/v1/player etc.) are POST-only and take a JSON client context.
+// Non-2xx responses return the body alongside the error so callers can surface
+// the server's own error message.
+func PostJSON(ctx *Context, u string, headers map[string]string, body any) (any, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("encoding request body: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range ctx.Headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := ctx.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		snippet := respBody
+		if len(snippet) > 300 {
+			snippet = snippet[:300]
+		}
+		return nil, fmt.Errorf("POST %s: status %d: %s", u, resp.StatusCode, snippet)
+	}
+	var v any
+	if err := json.Unmarshal(respBody, &v); err != nil {
 		return nil, fmt.Errorf("json decode: %w", err)
 	}
 	return v, nil
