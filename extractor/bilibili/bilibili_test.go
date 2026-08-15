@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/url"
 	"testing"
+
+	"yt-dlp-go/extractor"
 )
 
 const fixtureHTML = `<!doctype html><html><head><title>test</title></head><body>
@@ -146,5 +148,58 @@ func TestExtractPlayurlFormats_DURL(t *testing.T) {
 	}
 	if len(formats) != 2 || formats[0].Ext != "flv" {
 		t.Fatalf("got %+v", formats)
+	}
+}
+
+// When fnval=4048 the API returns the whole quality ladder: multiple video
+// streams (including HDR) plus audio. All must be exposed so -S can pick.
+func TestExtractPlayurlFormats_MultiQualityHDR(t *testing.T) {
+	body := map[string]any{
+		"data": map[string]any{
+			"dash": map[string]any{
+				"video": []any{
+					map[string]any{"id": 80, "baseUrl": "https://v.example/1080.m4s", "codecs": "avc1.64001f", "width": 1920, "height": 1080, "bandwidth": 3000000, "size": 123456},
+					map[string]any{"id": 112, "baseUrl": "https://v.example/1080h.m4s", "codecs": "hev1.1.6.L120.90", "width": 1920, "height": 1080, "bandwidth": 4000000, "size": 200000},
+					map[string]any{"id": 120, "baseUrl": "https://v.example/4k.m4s", "codecs": "av01.0.12M.10.0.110.09.18.0", "width": 3840, "height": 2160, "bandwidth": 12000000, "size": 900000},
+				},
+				"audio": []any{
+					map[string]any{"id": 30280, "baseUrl": "https://a.example/a.m4s", "codecs": "mp4a.40.2", "bandwidth": 192000, "size": 23456},
+				},
+			},
+		},
+	}
+	formats, err := extractPlayurlFormats(body)
+	if err != nil {
+		t.Fatalf("extractPlayurlFormats: %v", err)
+	}
+	if len(formats) != 4 {
+		t.Fatalf("got %d formats, want 4: %+v", len(formats), formats)
+	}
+	// HDR/4K stream must be present with correct resolution.
+	var uhd extractor.Format
+	found := false
+	for _, f := range formats {
+		if f.Height == 2160 {
+			uhd = f
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("4K video stream missing: %+v", formats)
+	}
+	if uhd.Width != 3840 || uhd.VCodec != "av01.0.12M.10.0.110.09.18.0" {
+		t.Errorf("4K stream metadata wrong: %+v", uhd)
+	}
+}
+
+func TestHttpsThumbnail(t *testing.T) {
+	if got := httpsThumbnail("http://i0.hdslb.com/cover.jpg"); got != "https://i0.hdslb.com/cover.jpg" {
+		t.Errorf("got %q", got)
+	}
+	if got := httpsThumbnail("https://i0.hdslb.com/cover.jpg"); got != "https://i0.hdslb.com/cover.jpg" {
+		t.Errorf("https URL should be unchanged, got %q", got)
+	}
+	if got := httpsThumbnail(""); got != "" {
+		t.Errorf("empty should stay empty, got %q", got)
 	}
 }

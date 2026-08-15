@@ -64,6 +64,8 @@ main.go
 
 | 17 | 实现 `--format-sort` (`-S`) 多键排序 | ✅ 完成 | `go test ./format/ ./...` 全绿 + 二进制可解析 `-S` | 新增 `format/format_sort.go`：`Sort(formats, spec)` 稳定多键排序，支持字段 res/height/width/fps/tbr/br/vbr/abr/size/asr/channels/quality/has_audio/has_video/pref/proto/source/ext/vcodec/acodec/codec(含 `codec:vp9.2` 偏好)/dynamic_range(hdr)/lang/id，修饰符 `+`(升)/`-`(降)/`!`(反转)。`format.Select` 改为可变参 `sortSpec ...string`；传入排序后 `best`/`worst`/`bestvideo`/`bestaudio` 按排序后的位置选取（首个/末个匹配 kind 且在过滤池内者），未传 `-S` 时保持原 quality() 行为完全不变。扩展 `extractor.Format` 增加 VBR/ABR/AudioSampleRate/AudioChannels/DynamicRange/Source/Language/Preference 字段并在 `fieldValue` 暴露为过滤字段；YouTube `buildFormat` 填充 asr/channels/source/dynamic_range。新增 `format_sort_test.go`：res 升降序、codec 偏好顺序、双键 res,fps、tie 稳定序、空 spec 不改变顺序、Select 集成（按 -S 选最高 res、!res 选最低、显式 itag 不受排序影响）。注：实时 YouTube 拉取当前沙箱不可达（代理 EOF / 直连超时），属环境问题；排序逻辑已由单测充分覆盖，二进制已构建且 `-S` 解析正常 |
 
+| 18 | 提质现有提取器（直播 HLS + Bilibili 画质） | ✅ 完成 | `go test ./...` 全绿；Bilibili 直连 `-s` 实测返回 9 格式 | **YouTube 直播流**：`youtube.go` 新增 `youtubeIsLive`（`videoDetails.isLiveContent`/`isLive`）与 `buildLiveFormats`（读 `streamingData.hlsManifestUrl` → 生成 `Protocol: m3u8_native` 格式，core 自动路由到分片下载器）；当 `adaptiveFormats` 为空但为直播时不再误报 age-restricted，并在 adaptive 解析落空时以 HLS 兜底。`info.IsLive` 已置位。新增 `TestYouTubeIsLive`/`TestBuildLiveFormats`。**Bilibili 画质升级**：`fetchFormats` 的 playurl 请求 `qn` 由 `64` 提到 `127`、`fnval` 由 `16` 提到 `4048`，让 API 返回完整画质梯（1080p+/4K/HDR），无 cookie 时自动降级到 720p 默认；缩略图 `http→https`；`extractPlayurlFormats` 补充多画质+HDR 解析测试（`TestExtractPlayurlFormats_MultiQualityHDR`）与 `TestHttpsThumbnail`。注意：Bilibili 经企业代理会 412（WAF 拦截代理 IP），直连正常；YouTube 直播路径沙箱不可达，已由单测覆盖逻辑 |
+
 图例：✅ 完成  🔲 待做  🔧 进行中  ⚠️ 受阻
 
 ---

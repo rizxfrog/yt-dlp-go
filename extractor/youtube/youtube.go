@@ -127,7 +127,12 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 	}
 
 	formats := collectRawFormats(player)
-	if len(formats) == 0 {
+	isLive := youtubeIsLive(player)
+	info.IsLive = isLive
+
+	// A live stream carries no adaptiveFormats; its only playable source is the
+	// HLS manifest. Don't misreport that as "age-restricted".
+	if len(formats) == 0 && !isLive {
 		return nil, fmt.Errorf("no streamingData formats in the %q player response "+
 			"(video may be age-restricted or require consent)", clientLabel)
 	}
@@ -159,10 +164,52 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 	}
 
 	if len(info.Formats) == 0 {
+		// Last chance: a live broadcast exposes only an HLS manifest, not the
+		// adaptiveFormats list we iterated above.
+		if live := buildLiveFormats(player); len(live) > 0 {
+			info.Formats = append(info.Formats, live...)
+		}
+	}
+	if len(info.Formats) == 0 {
 		return nil, fmt.Errorf("no resolvable formats found (client %q): %s",
 			clientLabel, summarizeSkips(len(formats), skipped))
 	}
 	return info, nil
+}
+
+// youtubeIsLive reports whether the player response describes a live broadcast.
+func youtubeIsLive(player map[string]any) bool {
+	if b, ok := extractor.TraverseObj(player, "videoDetails", "isLiveContent").(bool); ok {
+		return b
+	}
+	if b, ok := extractor.TraverseObj(player, "videoDetails", "isLive").(bool); ok {
+		return b
+	}
+	return false
+}
+
+// buildLiveFormats returns the HLS manifest format for a live stream. YouTube
+// serves live video exclusively through streamingData.hlsManifestUrl; the
+// core routes a "m3u8_native" protocol to the fragment downloader, which
+// assembles the HLS segments.
+func buildLiveFormats(player map[string]any) []extractor.Format {
+	sd := extractor.TraverseObj(player, "streamingData")
+	sdMap, ok := sd.(map[string]any)
+	if !ok {
+		return nil
+	}
+	hls := extractor.StrOrNone(sdMap["hlsManifestUrl"])
+	if hls == "" {
+		return nil
+	}
+	return []extractor.Format{{
+		FormatID:   "hls",
+		URL:        hls,
+		Protocol:   "m3u8_native",
+		Ext:        "m3u8",
+		Source:     "hls",
+		FormatNote: "live",
+	}}
 }
 
 // resolvePlayerResponse asks each default InnerTube client in turn for a player

@@ -138,10 +138,12 @@ go test -tags utls ./network/   # only with the utls build
 
 1. **Bilibili is real-verified end-to-end** (tested in this sandbox against a live
    `BV` URL): `window.__INITIAL_STATE__` parsing → pure-Go WBI signing →
-   `x/player/wbi/playurl` DASH all work. A subscribed `best` download merges
-   separate video+audio streams through ffmpeg into a playable file. Mid-quality
-   (≤720p) streams need **no cookie**; high-quality (1080p+) requires a logged-in
-   `SESSDATA` cookie via `--cookies`.
+   `x/player/wbi/playurl` DASH all work. The playurl call now requests the full
+   quality ladder (`fnval=4048`, `qn=127`), so a `best` download picks the highest
+   resolution the account is entitled to; Bilibili downgrades to the 720p default
+   with no login, and unlocks 1080p+ / 4K / HDR when a logged-in `SESSDATA` cookie
+   is supplied via `--cookies`. A `best` download merges separate video+audio
+   streams through ffmpeg into a playable file. Covers are upgraded `http→https`.
 2. **YouTube is now live-verified end-to-end** (this sandbox, via the corporate
    proxy) using the InnerTube player API: the watch page no longer carries stream
    URLs, so extraction goes through spoofed clients (`visionos`/`android_vr`/`web`),
@@ -149,10 +151,13 @@ go test -tags utls ./network/   # only with the utls build
    video + audio through ffmpeg into a playable file, and `-o` templates with
    subdirectories (e.g. `%(id)s/%(title)s.%(ext)s`) now auto-create their target
    directory (previously the `.part` open failed with "The system cannot find the
-   path specified"). **Cookies are not required** for these public-URL clients;
-   supplied account cookies may be silently stale (YouTube rotates them) — the
-   InnerTube path works without them, so ignore the "cookies no longer valid"
-   warning unless you specifically need age/restricted content.
+   path specified"). **Live broadcasts** are also handled: when `isLiveContent` is
+   set, the extractor emits the `streamingData.hlsManifestUrl` as an `m3u8_native`
+   format that the fragment downloader assembles. **Cookies are not required** for
+   these public-URL clients; supplied account cookies may be silently stale
+   (YouTube rotates them) — the InnerTube path works without them, so ignore the
+   "cookies no longer valid" warning unless you specifically need
+   age/restricted content.
 3. **Signature & n-parameter deobfuscation (done).** `extractor.DeobfuscateSignature`
    and `extractor.DeobfuscateNSig` both evaluate the player's transform functions
    in an embedded `goja` ECMAScript engine (pure Go), so the obfuscation runs

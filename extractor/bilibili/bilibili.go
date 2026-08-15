@@ -73,7 +73,7 @@ func (BilibiliIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.In
 		Description: meta.Desc,
 		Uploader:    meta.Owner,
 		UploadDate:  meta.PubDate,
-		Thumbnail:   meta.Pic,
+		Thumbnail:   httpsThumbnail(meta.Pic),
 		WebpageURL:  pageURL,
 		Ext:         "mp4",
 		Duration:    meta.Duration,
@@ -206,8 +206,14 @@ func fetchFormats(ctx *extractor.Context, meta *initialState) ([]extractor.Forma
 	params := url.Values{}
 	params.Set("bvid", meta.BVID)
 	params.Set("cid", fmt.Sprintf("%d", meta.CID))
-	params.Set("qn", "64")    // 720p
-	params.Set("fnval", "16") // DASH
+	// Request the highest quality the account is entitled to. Bilibili downgrades
+	// to what the cookie (SESSDATA) permits, so 127 is safe without login (it
+	// still returns the 720p default) and unlocks 1080p+ / 4K / HDR when a
+	// logged-in cookie is supplied via --cookies.
+	params.Set("qn", "127")
+	// fnval 4048 = DASH + 4K + HDR + Dolby; the API returns the full quality
+	// ladder in dash.video so the format selector (-S) can pick among them.
+	params.Set("fnval", "4048")
 	params.Set("fourk", "1")
 	params.Set("platform", "pc")
 	wts := time.Now().Unix()
@@ -227,6 +233,18 @@ func keyFromURL(u string) string {
 		return ""
 	}
 	return m[1]
+}
+
+// httpsThumbnail upgrades a Bilibili cover URL to HTTPS, since the page embeds
+// http:// covers that some clients refuse to fetch.
+func httpsThumbnail(u string) string {
+	if u == "" {
+		return ""
+	}
+	if strings.HasPrefix(u, "http://") {
+		return "https://" + u[len("http://"):]
+	}
+	return u
 }
 
 // extractPlayurlFormats converts a playurl API response body into formats.

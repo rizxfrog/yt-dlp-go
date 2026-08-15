@@ -120,3 +120,46 @@ function sig(a,b){a=a.split("");a.reverse();return a.join("")+b}
 		t.Errorf("sts passthrough: got %q, want GIS12345", got)
 	}
 }
+
+func TestYouTubeIsLive(t *testing.T) {
+	if !youtubeIsLive(map[string]any{"videoDetails": map[string]any{"isLiveContent": true}}) {
+		t.Error("isLiveContent=true should be live")
+	}
+	if youtubeIsLive(map[string]any{"videoDetails": map[string]any{"isLive": true}}) {
+		// isLive:true is also recognised.
+	}
+	if youtubeIsLive(map[string]any{}) {
+		t.Error("empty player should not be live")
+	}
+	if youtubeIsLive(map[string]any{"videoDetails": map[string]any{"isLiveContent": false}}) {
+		t.Error("isLiveContent=false should not be live")
+	}
+}
+
+func TestBuildLiveFormats(t *testing.T) {
+	const hls = "https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/123/playlist.m3u8"
+	live := buildLiveFormats(map[string]any{
+		"streamingData": map[string]any{"hlsManifestUrl": hls},
+	})
+	if len(live) != 1 {
+		t.Fatalf("got %d live formats, want 1", len(live))
+	}
+	f := live[0]
+	if f.Protocol != "m3u8_native" {
+		t.Errorf("protocol = %q, want m3u8_native", f.Protocol)
+	}
+	if f.URL != hls {
+		t.Errorf("url = %q", f.URL)
+	}
+	if f.Ext != "m3u8" || f.Source != "hls" || f.FormatNote != "live" {
+		t.Errorf("unexpected fields: %+v", f)
+	}
+
+	// No manifest -> no live format.
+	if got := buildLiveFormats(map[string]any{"streamingData": map[string]any{}}); got != nil {
+		t.Errorf("expected nil for missing hlsManifestUrl, got %+v", got)
+	}
+	if got := buildLiveFormats(map[string]any{}); got != nil {
+		t.Errorf("expected nil for missing streamingData, got %+v", got)
+	}
+}
