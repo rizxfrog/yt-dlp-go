@@ -22,6 +22,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -160,6 +161,16 @@ func proxyFromConfig(raw string) func(*http.Request) (*url.URL, error) {
 }
 
 // loadCookiesFile parses a Netscape/Mozilla cookies.txt and installs it in jar.
+//
+// The Netscape format is tab-separated with seven fields per record:
+//
+//	domain  include_subdomains  path  secure  expires  name  value
+//
+// Comments (leading '#') and blank lines are ignored. A '#HttpOnly_' prefix on
+// the domain column marks an HTTP-only cookie. This mirrors yt-dlp's
+// _really_load / load behaviour (yt_dlp/cookies.py) so that exported cookie
+// files — including the session cookies (expires == 0) that are common with
+// "remember me" logins — are applied faithfully.
 func loadCookiesFile(jar http.CookieJar, path string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -170,22 +181,59 @@ func loadCookiesFile(jar http.CookieJar, path string) error {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
+		// Strip the HttpOnly prefix before the comment check: a record like
+		// "#HttpOnly_.example.com	TRUE	..." is a real cookie, not a comment.
+		// (This mirrors yt-dlp's prepare_line in yt_dlp/cookies.py.)
+		httpOnly := strings.HasPrefix(line, "#HttpOnly_")
+		if httpOnly {
+			line = strings.TrimPrefix(line, "#HttpOnly_")
+		}
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) < 7 {
+		if len(fields) != 7 {
+			// Skip malformed records rather than failing the whole file.
 			continue
 		}
-		domain := strings.TrimPrefix(fields[0], "#HttpOnly_")
-		domain = strings.TrimPrefix(domain, ".")
+
+		domain := fields[0]
+		includeSubdomains := strings.EqualFold(fields[1], "TRUE")
 		pathField := fields[2]
 		secure := strings.EqualFold(fields[3], "TRUE")
+		expiresRaw := fields[4]
 		name := fields[5]
 		value := fields[6]
 
+		cookie := &http.Cookie{
+			Name:     name,
+			Value:    value,
+			Path:     pathField,
+			Secure:   secure,
+			HttpOnly: httpOnly,
+		}
+
+		// include_subdomains maps to the cookie's Domain attribute: a non-empty
+		// Domain makes it a "domain cookie" (sent to subdomains), while an empty
+		// Domain makes it host-only. Go's cookiejar strips any leading dot, so we
+		// pass the raw domain through and let it normalise.
+		if includeSubdomains {
+			cookie.Domain = domain
+		}
+
+		// expires is a Unix timestamp; 0 or empty means a session cookie. Go's
+		// cookiejar treats a zero Expires as a session (non-persistent) cookie,
+		// so we only set Expires for genuine, still-valid timestamps.
+		if expiresRaw != "" && expiresRaw != "0" {
+			if sec, err := strconv.ParseInt(expiresRaw, 10, 64); err == nil {
+				cookie.Expires = time.Unix(sec, 0)
+			}
+		}
+
+		// SetCookies needs a URL whose host matches the cookie domain; the scheme
+		// is only used to decide the default path, which we always supply.
 		u := &url.URL{Scheme: "https", Host: domain, Path: pathField}
-		jar.SetCookies(u, []*http.Cookie{{Name: name, Value: value, Path: pathField, Domain: domain, Secure: secure}})
+		jar.SetCookies(u, []*http.Cookie{cookie})
 	}
 	return sc.Err()
 }

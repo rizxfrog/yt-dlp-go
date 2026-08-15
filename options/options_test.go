@@ -72,3 +72,16 @@ func TestWantsPlaylistItem_All(t *testing.T) {
 		t.Fatal("empty spec should allow all")
 	}
 }
+
+func TestParse_Cookies(t *testing.T) {
+	o, urls, err := Parse([]string{"--cookies", "cookies.txt", "https://example.com/v/1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.CookiesFile != "cookies.txt" {
+		t.Fatalf("CookiesFile = %q, want %q", o.CookiesFile, "cookies.txt")
+	}
+	if len(urls) != 1 || urls[0] != "https://example.com/v/1" {
+		t.Fatalf("urls = %v", urls)
+	}
+}
