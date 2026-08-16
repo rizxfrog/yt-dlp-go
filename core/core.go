@@ -23,6 +23,7 @@ import (
 	_ "yt-dlp-go/extractor/bilibili"
 	_ "yt-dlp-go/extractor/douyin"
 	_ "yt-dlp-go/extractor/generic"
+	_ "yt-dlp-go/extractor/hongguo"
 	_ "yt-dlp-go/extractor/tiktok"
 	_ "yt-dlp-go/extractor/youtube"
 	"yt-dlp-go/format"

@@ -9,7 +9,7 @@ downloader engine.
 > template engine (`-o`), native HTTP / HLS / DASH downloaders with resume, rate
 > limiting and retry, an ffmpeg postprocessor collection, subtitle download, a
 > playlist + concurrent multi-URL pipeline, and a curated extractor set
-> (YouTube, Bilibili, TikTok, Douyin, Acast, and a direct-URL fallback). The engine is
+> (YouTube, Bilibili, TikTok, Douyin, 红果短剧, Acast, and a direct-URL fallback). The engine is
 > built on the **Go standard library** plus a few small, pure-Go dependencies:
 > `github.com/dop251/goja` (an embedded ECMAScript engine) evaluates YouTube's
 > signature transform exactly as written, and an optional `-tags utls` build adds
@@ -45,6 +45,7 @@ extractor/              Info/Format types, Extractor interface, registry, helper
   /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl)
   /tiktok               TikTok (og:video meta + __NEXT_DATA__)
   /douyin               Douyin 抖音 (aweme/v1/web/aweme/detail + no-watermark preference)
+  /hongguo              红果短剧 hongguoduanju (_ROUTER_DATA SSR payload)
   /acast                Acast (JSON-API pattern)
   /generic              Direct media-URL fallback
 ```
@@ -125,7 +126,9 @@ go build -tags utls -o yt-dlp-go-utls .
   TikTok: `aweme/v1/web/aweme/detail` JSON with fresh `s_v_web_id`/`sid_tt`
   cookies — no `a_bogus` JS signature needed — and no-watermark playback
   streams preferred over the watermarked `download_addr` via the format
-  `Preference` field), Acast, and a direct-URL
+  `Preference` field), **红果短剧** (`hongguoduanju.com` — the SSR page embeds
+  the playable mp4 in a `_ROUTER_DATA` JSON blob; no API signature needed),
+  Acast, and a direct-URL
   generic fallback.
 - **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
   `utls`, reproducing the impersonated browser's ClientHello.
