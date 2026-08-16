@@ -42,7 +42,7 @@ output/                 -o template engine (%(field)s, defaults, date, duration)
 postprocessor/          ffmpeg orchestration (merge / remux / extract-audio / metadata / subs)
 extractor/              Info/Format types, Extractor interface, registry, helpers, JS evaluator
   /youtube              YouTube (InnerTube player API + sig/nsig deobfuscation + captions)
-  /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl)
+  /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl, incl. UGC 合集 seasons)
   /tiktok               TikTok (og:video meta + __NEXT_DATA__)
   /douyin               Douyin 抖音 (aweme/v1/web/aweme/detail + no-watermark preference)
   /hongguo              红果短剧 hongguoduanju (_ROUTER_DATA SSR payload)
@@ -129,7 +129,9 @@ go build -tags utls -o yt-dlp-go-utls .
   transform and the `n` throttling transform (located by its **player call site**,
   `x = NAME(x)` / the module form `x = (0, MOD.NAME)(x)`) are also supported via
   the embedded `goja` engine. **Bilibili** (metadata from
-  `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
+  `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV; a video
+  belonging to a UGC 合集/season expands to a playlist of every episode, each
+  resolved via its own `cid`),
   **TikTok** (og:video meta + `__NEXT_DATA__`), **Douyin** (抖音, the Chinese
   TikTok: `aweme/v1/web/aweme/detail` JSON with fresh `s_v_web_id`/`sid_tt`
   cookies — no `a_bogus` JS signature needed — and no-watermark playback

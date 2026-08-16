@@ -37,15 +37,16 @@ type Format struct {
 	FPS             float64
 	Filesize        int64
 	FormatNote      string
-	TBR             float64 // total bitrate kbps
-	VBR             float64 // video bitrate kbps (0 if unknown)
-	ABR             float64 // audio bitrate kbps (0 if unknown)
-	AudioSampleRate int     // asr, Hz (0 if unknown)
-	AudioChannels   int     // audio channels (0 if unknown)
-	DynamicRange    string  // SDR / HDR10 / HLG / DOLBY_VISION ("" if unknown)
-	Source          string  // provenance: web / dash / hls / http ("" if unknown)
-	Language        string  // track language tag ("" if unknown)
-	Preference      int     // extractor-assigned preference (higher = better)
+	TBR             float64           // total bitrate kbps
+	VBR             float64           // video bitrate kbps (0 if unknown)
+	ABR             float64           // audio bitrate kbps (0 if unknown)
+	AudioSampleRate int               // asr, Hz (0 if unknown)
+	AudioChannels   int               // audio channels (0 if unknown)
+	DynamicRange    string            // SDR / HDR10 / HLG / DOLBY_VISION ("" if unknown)
+	Source          string            // provenance: web / dash / hls / http ("" if unknown)
+	Language        string            // track language tag ("" if unknown)
+	Preference      int               // extractor-assigned preference (higher = better)
+	Headers         map[string]string // per-format HTTP headers (e.g. Referer for CDN hotlink checks)
 }
 
 // Info is the normalised extraction result.

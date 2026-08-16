@@ -594,13 +594,29 @@ func (y *YoutubeDL) downloadFormat(refURL string, f extractor.Format, path strin
 	}
 	dopts := downloader.DownloadOpts{
 		Client:              y.Client,
-		Headers:             y.Opts.AddHeaders,
+		Headers:             mergeHeaders(y.Opts.AddHeaders, f.Headers),
 		Retries:             y.Opts.Retries,
 		ConcurrentFragments: y.Opts.ConcurrentFragments,
 		RateLimit:           y.Opts.LimitRate,
 		Format:              f,
 	}
 	return dl.Download(context.Background(), f.URL, path, dopts)
+}
+
+// mergeHeaders overlays per-format headers on top of the global add-headers.
+// Format-level headers (e.g. a Referer for a specific CDN) win on conflict.
+func mergeHeaders(base, override map[string]string) map[string]string {
+	if len(override) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
 }
 
 // ---- output naming ----

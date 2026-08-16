@@ -67,6 +67,13 @@ func (BilibiliIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.In
 		return nil, err
 	}
 
+	// A UGC 合集 (season) with more than one episode expands to a playlist so a
+	// single video URL downloads the whole set (use --no-playlist for just this
+	// one). A single-episode season falls through to the normal single-video path.
+	if meta.Season != nil && len(meta.Season.Episodes) > 1 {
+		return buildSeasonPlaylist(ctx, pageURL, meta)
+	}
+
 	info := &extractor.Info{
 		ID:           meta.BVID,
 		Title:        meta.Title,
@@ -98,6 +105,54 @@ func (BilibiliIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.In
 	return info, nil
 }
 
+// buildSeasonPlaylist expands a UGC 合集 (season) into a playlist: one entry per
+// episode, each a fully-resolved Info with its own media formats. The episode
+// metadata is SSR-injected on the page, so only the playurl API is called per
+// episode (WBI keys fetched once and reused). Episodes whose playurl fails are
+// skipped so the rest of the set still downloads.
+func buildSeasonPlaylist(ctx *extractor.Context, pageURL string, meta *initialState) (*extractor.Info, error) {
+	keys, err := fetchWbiKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("bilibili: WBI keys: %w", err)
+	}
+
+	pl := &extractor.Info{
+		ID:         fmt.Sprintf("season-%d", meta.Season.ID),
+		Title:      meta.Season.Title,
+		WebpageURL: pageURL,
+		Entries:    make([]*extractor.Info, 0, len(meta.Season.Episodes)),
+	}
+
+	for _, ep := range meta.Season.Episodes {
+		entry := &extractor.Info{
+			ID:           ep.BVID,
+			Title:        ep.Title,
+			Uploader:     ep.Author,
+			Channel:      ep.Author,
+			UploadDate:   ep.PubDate,
+			Thumbnail:    httpsThumbnail(ep.Pic),
+			WebpageURL:   "https://www.bilibili.com/video/" + ep.BVID + "/",
+			Ext:          "mp4",
+			Duration:     ep.Duration,
+			ViewCount:    ep.View,
+			LikeCount:    ep.Like,
+			CommentCount: ep.Reply,
+			RepostCount:  ep.Share,
+			Subtitles:    map[string][]extractor.Subtitle{},
+		}
+		formats, ferr := fetchFormatsForCid(ctx, ep.BVID, ep.CID, keys)
+		if ferr != nil {
+			if ctx.Options != nil && ctx.Options.Verbose {
+				fmt.Printf("[bilibili] episode %s (%s) playurl unavailable: %v\n", ep.BVID, ep.Title, ferr)
+			}
+			continue // skip episodes we cannot resolve
+		}
+		entry.Formats = formats
+		pl.Entries = append(pl.Entries, entry)
+	}
+	return pl, nil
+}
+
 // ---- metadata parsing ----
 
 type initialState struct {
@@ -114,7 +169,33 @@ type initialState struct {
 	Like     int64
 	Reply    int64
 	Share    int64
-	Raw      map[string]any
+	// Season is populated when the video belongs to a UGC 合集 (season): a
+	// creator-curated set of independent BVs grouped under one season_id.
+	Season *seasonInfo
+	Raw    map[string]any
+}
+
+// seasonInfo is a Bilibili UGC 合集 (season) and its episodes. Each episode is
+// an independent video (its own bvid + cid), so a season expands to a playlist.
+type seasonInfo struct {
+	ID       int64
+	Title    string
+	Episodes []seasonEpisode
+}
+
+// seasonEpisode is one video inside a UGC 合集.
+type seasonEpisode struct {
+	BVID     string
+	CID      int64
+	Title    string
+	Duration float64
+	Pic      string
+	View     int64
+	Like     int64
+	Reply    int64
+	Share    int64
+	PubDate  string
+	Author   string
 }
 
 // parseInitialState extracts the `window.__INITIAL_STATE__` blob and pulls the
@@ -144,7 +225,64 @@ func parseInitialState(html string) (*initialState, error) {
 	s.Like = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "like")))
 	s.Reply = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "reply")))
 	s.Share = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "share")))
+	s.Season = parseSeason(vd)
 	return s, nil
+}
+
+// parseSeason extracts the UGC 合集 (season) that a video belongs to, if any.
+// The full episode list is SSR-injected under videoData.ugc_season.sections[].
+// episodes[], so no extra API call is needed to enumerate the season.
+func parseSeason(vd map[string]any) *seasonInfo {
+	ugc, ok := extractor.TraverseObj(vd, "ugc_season").(map[string]any)
+	if !ok {
+		return nil
+	}
+	s := &seasonInfo{
+		ID:    int64(extractor.IntOrNone(ugc["id"])),
+		Title: extractor.StrOrNone(ugc["title"]),
+	}
+	sections, _ := extractor.TraverseObj(ugc, "sections").([]any)
+	for _, sec := range sections {
+		sm, ok := sec.(map[string]any)
+		if !ok {
+			continue
+		}
+		eps, _ := extractor.TraverseObj(sm, "episodes").([]any)
+		for _, ep := range eps {
+			em, ok := ep.(map[string]any)
+			if !ok {
+				continue
+			}
+			e := seasonEpisode{
+				BVID:     extractor.StrOrNone(em["bvid"]),
+				CID:      int64(extractor.IntOrNone(em["cid"])),
+				Title:    extractor.StrOrNone(em["title"]),
+				Duration: extractor.FloatOrNone(em["duration"]),
+			}
+			// arc carries the fuller metadata (cover, stats, author, pubdate).
+			if arc, ok := extractor.TraverseObj(em, "arc").(map[string]any); ok {
+				if e.Title == "" {
+					e.Title = extractor.StrOrNone(arc["title"])
+				}
+				e.Pic = extractor.StrOrNone(arc["pic"])
+				e.View = int64(extractor.IntOrNone(extractor.TraverseObj(arc, "stat", "view")))
+				e.Like = int64(extractor.IntOrNone(extractor.TraverseObj(arc, "stat", "like")))
+				e.Reply = int64(extractor.IntOrNone(extractor.TraverseObj(arc, "stat", "reply")))
+				e.Share = int64(extractor.IntOrNone(extractor.TraverseObj(arc, "stat", "share")))
+				e.Author = extractor.StrOrNone(extractor.TraverseObj(arc, "author", "name"))
+				if pub := extractor.IntOrNone(arc["pubdate"]); pub > 0 {
+					e.PubDate = time.Unix(int64(pub), 0).UTC().Format("20060102")
+				}
+			}
+			if e.BVID != "" && e.CID != 0 {
+				s.Episodes = append(s.Episodes, e)
+			}
+		}
+	}
+	if len(s.Episodes) == 0 {
+		return nil
+	}
+	return s
 }
 
 // ---- WBI signing ----
@@ -196,14 +334,13 @@ func wbiSign(imgKey, subKey string, params url.Values, wts int64) string {
 
 // ---- playurl media resolution ----
 
-// fetchFormats requests the WBI-signed playurl API and converts the DASH/FLV
-// response into extractor Formats. Any failure returns an error (the caller
-// treats it as best-effort).
-func fetchFormats(ctx *extractor.Context, meta *initialState) ([]extractor.Format, error) {
-	if meta.CID == 0 {
-		return nil, fmt.Errorf("missing cid")
-	}
-	// Fetch the nav endpoint to obtain the WBI keys.
+// wbiKeys holds the two WBI signing keys derived from the nav API. They are
+// stable across a short session, so a season playlist fetches them once and
+// reuses them for every episode.
+type wbiKeys struct{ imgKey, subKey string }
+
+// fetchWbiKeys obtains the current WBI signing keys from the nav endpoint.
+func fetchWbiKeys(ctx *extractor.Context) (*wbiKeys, error) {
 	nav, err := extractor.DownloadJSON(ctx, "https://api.bilibili.com/x/web-interface/nav", nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("nav: %w", err)
@@ -215,10 +352,22 @@ func fetchFormats(ctx *extractor.Context, meta *initialState) ([]extractor.Forma
 	if imgKey == "" || subKey == "" {
 		return nil, fmt.Errorf("could not derive WBI keys")
 	}
+	return &wbiKeys{imgKey: imgKey, subKey: subKey}, nil
+}
 
+// fetchFormatsForCid requests the WBI-signed playurl API for a specific
+// bvid/cid and converts the DASH/FLV response into extractor Formats. The keys
+// must be fetched once via fetchWbiKeys and reused across calls.
+func fetchFormatsForCid(ctx *extractor.Context, bvid string, cid int64, keys *wbiKeys) ([]extractor.Format, error) {
+	if cid == 0 {
+		return nil, fmt.Errorf("missing cid")
+	}
+	if keys == nil {
+		return nil, fmt.Errorf("missing WBI keys")
+	}
 	params := url.Values{}
-	params.Set("bvid", meta.BVID)
-	params.Set("cid", fmt.Sprintf("%d", meta.CID))
+	params.Set("bvid", bvid)
+	params.Set("cid", fmt.Sprintf("%d", cid))
 	// Request the highest quality the account is entitled to. Bilibili downgrades
 	// to what the cookie (SESSDATA) permits, so 127 is safe without login (it
 	// still returns the 720p default) and unlocks 1080p+ / 4K / HDR when a
@@ -230,13 +379,23 @@ func fetchFormats(ctx *extractor.Context, meta *initialState) ([]extractor.Forma
 	params.Set("fourk", "1")
 	params.Set("platform", "pc")
 	wts := time.Now().Unix()
-	params.Set("w_rid", wbiSign(imgKey, subKey, params, wts))
+	params.Set("w_rid", wbiSign(keys.imgKey, keys.subKey, params, wts))
 
 	body, err := extractor.DownloadJSON(ctx, "https://api.bilibili.com/x/player/wbi/playurl", nil, params)
 	if err != nil {
 		return nil, fmt.Errorf("playurl: %w", err)
 	}
 	return extractPlayurlFormats(body)
+}
+
+// fetchFormats resolves the media for a single video (meta holds its bvid/cid).
+// Any failure returns an error (the caller treats it as best-effort).
+func fetchFormats(ctx *extractor.Context, meta *initialState) ([]extractor.Format, error) {
+	keys, err := fetchWbiKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return fetchFormatsForCid(ctx, meta.BVID, meta.CID, keys)
 }
 
 // keyFromURL extracts the 32-char key embedded in a wbi_img URL.
@@ -268,6 +427,9 @@ func extractPlayurlFormats(body any) ([]extractor.Format, error) {
 		return nil, fmt.Errorf("playurl: missing data")
 	}
 	var out []extractor.Format
+	// Bilibili's video CDN enforces a Referer hotlink check on media URLs;
+	// without it the DASH/FLV streams return HTTP 403.
+	mediaHeaders := map[string]string{"Referer": "https://www.bilibili.com/"}
 
 	// DASH streams.
 	if dash := extractor.TraverseObj(data, "dash"); dash != nil {
@@ -294,6 +456,7 @@ func extractPlayurlFormats(body any) ([]extractor.Format, error) {
 					Width:    extractor.IntOrNone(extractor.TraverseObj(m, "width")),
 					Height:   extractor.IntOrNone(extractor.TraverseObj(m, "height")),
 					Filesize: int64(extractor.FloatOrNone(extractor.TraverseObj(m, "size"))),
+					Headers:  mediaHeaders,
 				}
 				if key == "video" {
 					f.VCodec = extractor.StrOrNone(extractor.TraverseObj(m, "codecs"))
@@ -323,6 +486,7 @@ func extractPlayurlFormats(body any) ([]extractor.Format, error) {
 				Protocol: "http",
 				Ext:      "flv",
 				Filesize: int64(extractor.FloatOrNone(extractor.TraverseObj(m, "size"))),
+				Headers:  mediaHeaders,
 			})
 		}
 		return out, nil

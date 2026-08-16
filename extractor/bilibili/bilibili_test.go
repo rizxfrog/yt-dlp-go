@@ -203,3 +203,53 @@ func TestHttpsThumbnail(t *testing.T) {
 		t.Errorf("empty should stay empty, got %q", got)
 	}
 }
+
+const fixtureSeasonHTML = `<!doctype html><html><body>
+<script>window.__INITIAL_STATE__={"videoData":{"bvid":"BV1BYuo6JE1w","aid":117072134733981,"cid":40789936120,"title":"演示视频","owner":{"name":"UP主"},"pic":"https://i0.hdslb.com/cover.jpg","duration":905,"pubdate":1700000000,"ugc_season":{"id":8804028,"title":"测试合集","sections":[{"title":"正片","episodes":[
+{"bvid":"BV1BYuo6JE1w","cid":40789936120,"title":"第一集","duration":905,"arc":{"pic":"https://p1.jpg","stat":{"view":100,"like":10,"reply":2,"share":1},"author":{"name":"UP主"},"pubdate":1700000000}},
+{"bvid":"BV1D2ue63EoN","cid":40823360504,"title":"第二集","duration":509,"arc":{"pic":"https://p2.jpg","stat":{"view":200,"like":20,"reply":3,"share":2},"author":{"name":"UP主"},"pubdate":1700000000}}
+]}]}}};</script>
+</body></html>`
+
+func TestParseSeason(t *testing.T) {
+	meta, err := parseInitialState(fixtureSeasonHTML)
+	if err != nil {
+		t.Fatalf("parseInitialState: %v", err)
+	}
+	if meta.Season == nil {
+		t.Fatal("Season should be populated")
+	}
+	if meta.Season.ID != 8804028 || meta.Season.Title != "测试合集" {
+		t.Errorf("season id/title = %d/%q", meta.Season.ID, meta.Season.Title)
+	}
+	if len(meta.Season.Episodes) != 2 {
+		t.Fatalf("episodes = %d, want 2", len(meta.Season.Episodes))
+	}
+	ep0 := meta.Season.Episodes[0]
+	if ep0.BVID != "BV1BYuo6JE1w" || ep0.CID != 40789936120 {
+		t.Errorf("ep0 bvid/cid = %s/%d", ep0.BVID, ep0.CID)
+	}
+	if ep0.Title != "第一集" || ep0.Duration != 905 {
+		t.Errorf("ep0 title/duration = %q/%v", ep0.Title, ep0.Duration)
+	}
+	if ep0.View != 100 || ep0.Like != 10 || ep0.Reply != 2 || ep0.Share != 1 {
+		t.Errorf("ep0 stats = %d/%d/%d/%d", ep0.View, ep0.Like, ep0.Reply, ep0.Share)
+	}
+	if ep0.Author != "UP主" || ep0.PubDate != "20231114" {
+		t.Errorf("ep0 author/pubdate = %q/%q", ep0.Author, ep0.PubDate)
+	}
+	ep1 := meta.Season.Episodes[1]
+	if ep1.BVID != "BV1D2ue63EoN" || ep1.CID != 40823360504 {
+		t.Errorf("ep1 bvid/cid = %s/%d", ep1.BVID, ep1.CID)
+	}
+}
+
+func TestParseSeason_NoSeason(t *testing.T) {
+	meta, err := parseInitialState(fixtureHTML)
+	if err != nil {
+		t.Fatalf("parseInitialState: %v", err)
+	}
+	if meta.Season != nil {
+		t.Errorf("Season should be nil for a non-season video, got %+v", meta.Season)
+	}
+}
