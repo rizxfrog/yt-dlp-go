@@ -126,6 +126,30 @@ func TestHTTPDownload_404NotRetryable(t *testing.T) {
 	}
 }
 
+func TestHTTPDownload_403Retryable(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if hits == 1 {
+			// CDN anti-hotlink / rate-limit blocks return a transient 403.
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Write([]byte("ok after retry"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.bin")
+	err := (HTTPDownloader{}).Download(context.Background(), srv.URL, out, DownloadOpts{Retries: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits != 2 {
+		t.Fatalf("expected 2 server hits (1 fail + 1 success), got %d", hits)
+	}
+}
+
 func TestParseRateLimit(t *testing.T) {
 	cases := map[string]int64{
 		"":    0,

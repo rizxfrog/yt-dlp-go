@@ -127,8 +127,9 @@ go build -tags utls -o yt-dlp-go-utls .
   cookies — no `a_bogus` JS signature needed — and no-watermark playback
   streams preferred over the watermarked `download_addr` via the format
   `Preference` field), **红果短剧** (`hongguoduanju.com` — the SSR page embeds
-  the playable mp4 in a `_ROUTER_DATA` JSON blob; no API signature needed),
-  Acast, and a direct-URL
+  the playable mp4 in a `_ROUTER_DATA` JSON blob; no API signature needed.
+  `/player/<sid>` expands the whole drama into a playlist (free episodes only),
+  `/player/<sid>/<vid>` grabs a single episode), Acast, and a direct-URL
   generic fallback.
 - **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
   `utls`, reproducing the impersonated browser's ClientHello.

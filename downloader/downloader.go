@@ -133,7 +133,12 @@ func httpDownloadRange(ctx context.Context, client *http.Client, opts DownloadOp
 		// Expected when resuming.
 	case http.StatusTooManyRequests, http.StatusRequestTimeout:
 		return statusError{code: resp.StatusCode, retryable: true}
-	case http.StatusNotFound, http.StatusForbidden, http.StatusUnauthorized:
+	case http.StatusForbidden:
+		// CDN anti-hotlink / rate-limit blocks are often transient 403s (e.g.
+		// hongguoduanju's qznovelvod CDN when downloading several episodes back
+		// to back); retry with backoff, as yt-dlp does for such CDNs.
+		return statusError{code: resp.StatusCode, retryable: true}
+	case http.StatusNotFound, http.StatusUnauthorized:
 		return statusError{code: resp.StatusCode, retryable: false}
 	case http.StatusServiceUnavailable, http.StatusBadGateway, http.StatusGatewayTimeout,
 		http.StatusInternalServerError, http.StatusBadRequest:
