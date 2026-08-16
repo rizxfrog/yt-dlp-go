@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -31,6 +32,7 @@ import (
 	"yt-dlp-go/options"
 	"yt-dlp-go/output"
 	"yt-dlp-go/postprocessor"
+	"yt-dlp-go/sponsorblock"
 )
 
 // printMu serialises log writes so concurrent downloads don't interleave their
@@ -136,9 +138,46 @@ func (y *YoutubeDL) downloadPlaylist(pl *extractor.Info) error {
 	return firstErr
 }
 
+// markSponsorblock fetches SponsorBlock skip segments for the video and appends
+// them to info.Chapters as "[SponsorBlock]: <category>" markers (the yt-dlp
+// --sponsorblock-mark behaviour). Failures are non-fatal.
+func (y *YoutubeDL) markSponsorblock(info *extractor.Info) {
+	if info.ID == "" {
+		return
+	}
+	cats := sponsorblock.ParseCategories(y.Opts.SponsorblockCategories)
+	segs, err := sponsorblock.Fetch(y.Client, info.ID, cats)
+	if err != nil {
+		if y.Opts.Verbose {
+			logPrintf(os.Stderr, "[sponsorblock] %v\n", err)
+		}
+		return
+	}
+	if len(segs) == 0 {
+		return
+	}
+	for _, s := range segs {
+		info.Chapters = append(info.Chapters, extractor.Chapter{
+			Title:     "[SponsorBlock]: " + s.Category,
+			StartTime: s.StartTime,
+			EndTime:   s.EndTime,
+		})
+	}
+	sort.SliceStable(info.Chapters, func(i, j int) bool {
+		return info.Chapters[i].StartTime < info.Chapters[j].StartTime
+	})
+	// Log to stderr so -j/--dump-json stdout stays pure JSON.
+	logPrintf(os.Stderr, "[sponsorblock] %d segments marked as chapters\n", len(segs))
+}
+
 // processInfo runs the download + postprocess pipeline for one already-extracted
 // Info (a single video or a playlist entry).
 func (y *YoutubeDL) processInfo(info *extractor.Info) error {
+	// SponsorBlock mark happens first so --dump-json / --print see the chapters.
+	if y.Opts.SponsorblockMark {
+		y.markSponsorblock(info)
+	}
+
 	// --print: render a single field and exit.
 	if y.Opts.PrintField != "" {
 		s, err := output.Render(y.Opts.PrintField, info)
@@ -240,6 +279,19 @@ func (y *YoutubeDL) processInfo(info *extractor.Info) error {
 					final = out
 				} else if y.Opts.Verbose {
 					logPrintf(os.Stderr, "[warn] audio extract failed: %v\n", aerr)
+				}
+			}
+		}
+
+		// --embed-chapters
+		if y.Opts.EmbedChapters && len(info.Chapters) > 0 {
+			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
+				pp := postprocessor.FFmpegEmbedChapters{FFmpeg: ff, Chapters: info.Chapters, Duration: info.Duration}
+				if out, cerr := pp.Process(final, y.Opts); cerr == nil {
+					logPrintf(os.Stdout, "[postprocess] chapters -> %s\n", out)
+					final = out
+				} else if y.Opts.Verbose {
+					logPrintf(os.Stderr, "[warn] embed chapters failed: %v\n", cerr)
 				}
 			}
 		}

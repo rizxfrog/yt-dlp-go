@@ -69,6 +69,12 @@ type Options struct {
 	NoColors      bool   // --no-colors
 	PrintField    string // --print %(field)s
 
+	// SponsorBlock / chapters
+	SponsorblockMark       bool   // --sponsorblock-mark (mark segments as chapters)
+	SponsorblockRemove     bool   // --sponsorblock-remove (cut segments out)
+	SponsorblockCategories string // --sponsorblock-categories (comma-separated)
+	EmbedChapters          bool   // --embed-chapters
+
 	// Post / output controls
 	FFmpegLocation string // --ffmpeg-location
 	WriteInfoJSON  bool   // --write-info-json
@@ -171,6 +177,11 @@ func Parse(args []string) (*Options, []string, error) {
 	fs.IntVar(&o.TrimFilenames, "trim-filenames", 0, "limit filenames to N characters")
 	fs.BoolVar(&o.NoColors, "no-colors", false, "disable ANSI colors in output")
 	fs.StringVar(&o.PrintField, "print", "", "print a template field, e.g. %(title)s")
+
+	fs.BoolVar(&o.SponsorblockMark, "sponsorblock-mark", false, "mark SponsorBlock segments as chapters")
+	fs.BoolVar(&o.SponsorblockRemove, "sponsorblock-remove", false, "remove SponsorBlock segments from the video")
+	fs.StringVar(&o.SponsorblockCategories, "sponsorblock-categories", "", "SponsorBlock categories to act on (comma-separated; default sponsor)")
+	fs.BoolVar(&o.EmbedChapters, "embed-chapters", false, "embed chapter markers in the downloaded file")
 
 	fs.BoolVar(&o.Verbose, "v", false, "verbose logging")
 	fs.BoolVar(&o.Verbose, "verbose", false, "alias of -v")

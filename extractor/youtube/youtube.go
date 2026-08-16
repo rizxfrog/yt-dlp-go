@@ -96,6 +96,9 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 	lengthStr := firstNonEmpty(sources, func(p map[string]any) string {
 		return extractor.StrOrNone(extractor.TraverseObj(p, "videoDetails", "lengthSeconds"))
 	})
+	description := firstNonEmpty(sources, func(p map[string]any) string {
+		return extractor.StrOrNone(extractor.TraverseObj(p, "videoDetails", "shortDescription"))
+	})
 
 	// Signature timestamp: passed as the second argument to the signature
 	// transform by modern player builds. Only used on the ciphered fallback path.
@@ -115,12 +118,14 @@ func (YouTubeIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Inf
 	}
 
 	info := &extractor.Info{
-		ID:         videoID,
-		Title:      title,
-		WebpageURL: pageURL,
-		Ext:        "mp4",
-		Subtitles:  subs,
-		Raw:        player,
+		ID:          videoID,
+		Title:       title,
+		Description: description,
+		WebpageURL:  pageURL,
+		Ext:         "mp4",
+		Subtitles:   subs,
+		Chapters:    parseChaptersFromDescription(description),
+		Raw:         player,
 	}
 	if d, e := strconv.ParseFloat(lengthStr, 64); e == nil {
 		info.Duration = d

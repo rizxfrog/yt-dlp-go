@@ -63,6 +63,10 @@ Options (subset of yt-dlp):
   -o, --output TEMPLATE     output filename template (%(title)s.%(ext)s, defaults, dates)
   -P, --paths DIR           base directory for output files
   --merge-output-format FMT container for merged outputs (mkv/mp4)
+  --sponsorblock-mark       mark SponsorBlock segments as chapters
+  --sponsorblock-remove     cut SponsorBlock segments out of the video
+  --sponsorblock-categories CATS  categories to act on (default: sponsor)
+  --embed-chapters          embed chapter markers into the file
   --proxy URL               HTTP(S)/SOCKS proxy
   --cookies FILE            Netscape/Mozilla cookies.txt
   --no-check-certificates   ignore TLS errors

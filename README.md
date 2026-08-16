@@ -101,7 +101,12 @@ go build -tags utls -o yt-dlp-go-utls .
   concurrent fragments, AES-128-CBC decryption, TS/m4s concatenation).
 - **Postprocessors**: ffmpeg merge, video remux (`--remux-video`), audio
   extraction (`-x` with bitrate/quality), metadata + embedded thumbnail, subtitle
-  embed/convert.
+  embed/convert, chapter embedding (`--embed-chapters`).
+- **SponsorBlock**: `--sponsorblock-mark` fetches crowd-sourced skip segments
+  (via the SponsorBlock API) and marks them as `[SponsorBlock]: <category>`
+  chapters; `--sponsorblock-categories` selects which categories to act on.
+  Video chapters are also parsed from YouTube descriptions (`MM:SS title` lines)
+  and merged with the SponsorBlock markers.
 - **Subtitles**: HLS `#EXT-X-MEDIA` parsing + download, YouTube caption-track
   extraction, language filtering (`--sub-langs`), format conversion.
 - **Playlists & concurrency**: `Info.Entries` playlist model; `--playlist-items`

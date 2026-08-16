@@ -66,6 +66,9 @@ type Info struct {
 	// channel / feed. A non-nil, non-empty Entries slice marks the result as a
 	// playlist that the core should iterate instead of downloading this node.
 	Entries []*Info
+	// Chapters are named time ranges (video chapters, or SponsorBlock skip
+	// segments marked as chapters).
+	Chapters []Chapter
 	// Raw is the original JSON object for debugging / advanced access.
 	Raw map[string]any
 }
@@ -75,6 +78,13 @@ type Subtitle struct {
 	URL  string
 	Ext  string
 	Name string
+}
+
+// Chapter is a named time range within a media file.
+type Chapter struct {
+	Title     string  // chapter title
+	StartTime float64 // seconds
+	EndTime   float64 // seconds (0 when open-ended)
 }
 
 // Context carries the HTTP client and options into an extractor.
