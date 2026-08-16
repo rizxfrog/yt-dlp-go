@@ -85,3 +85,71 @@ func TestParse_Cookies(t *testing.T) {
 		t.Fatalf("urls = %v", urls)
 	}
 }
+
+func TestParse_FlagsAfterURL(t *testing.T) {
+	// yt-dlp allows flags after the URL; a value flag (--cookies FILE) and a
+	// boolean flag (--no-overwrite) must both be parsed, not treated as URLs.
+	args := []string{
+		"https://www.bilibili.com/video/BV1BYuo6JE1w/?spm_id_from=333",
+		"--cookies", "/home/van/Documents/www.bilibili.com_cookies.txt",
+		"--no-overwrite",
+	}
+	o, urls, err := Parse(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.CookiesFile != "/home/van/Documents/www.bilibili.com_cookies.txt" {
+		t.Fatalf("CookiesFile = %q", o.CookiesFile)
+	}
+	if !o.NoOverwrites {
+		t.Fatal("no-overwrite not parsed")
+	}
+	if len(urls) != 1 || urls[0] != "https://www.bilibili.com/video/BV1BYuo6JE1w/?spm_id_from=333" {
+		t.Fatalf("urls = %v", urls)
+	}
+}
+
+func TestParse_FlagAfterURLWithInlineValue(t *testing.T) {
+	// -f=bestvideo+bestaudio inline form after a URL.
+	o, urls, err := Parse([]string{"https://example.com/v/1", "-f=bestvideo+bestaudio"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Format != "bestvideo+bestaudio" {
+		t.Fatalf("Format = %q", o.Format)
+	}
+	if len(urls) != 1 || urls[0] != "https://example.com/v/1" {
+		t.Fatalf("urls = %v", urls)
+	}
+}
+
+func TestParse_InterleavedFlags(t *testing.T) {
+	// Flags, URLs, and more flags interleaved; "--" stops flag parsing.
+	args := []string{
+		"--format", "best",
+		"https://example.com/a",
+		"--cookies", "c.txt",
+		"https://example.com/b",
+		"--",
+		"--not-a-flag",
+	}
+	o, urls, err := Parse(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Format != "best" {
+		t.Fatalf("Format = %q", o.Format)
+	}
+	if o.CookiesFile != "c.txt" {
+		t.Fatalf("CookiesFile = %q", o.CookiesFile)
+	}
+	want := []string{"https://example.com/a", "https://example.com/b", "--not-a-flag"}
+	if len(urls) != len(want) {
+		t.Fatalf("urls = %v, want %v", urls, want)
+	}
+	for i := range want {
+		if urls[i] != want[i] {
+			t.Fatalf("urls[%d] = %q, want %q", i, urls[i], want[i])
+		}
+	}
+}

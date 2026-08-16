@@ -639,11 +639,14 @@ func (y *YoutubeDL) outputBase(info *extractor.Info) string {
 		}
 		// On template error, fall through to the default naming.
 	}
+	// Default naming: the title is a single filename component, not a path.
+	// Apply Sanitize (not SanitizePath) so that '/' (and other punctuation) in
+	// the title is rewritten to '_' instead of creating subdirectories.
 	name := info.Title
 	if name == "" {
 		name = info.ID
 	}
-	return filepath.Join(dir, output.SanitizePath(name))
+	return filepath.Join(dir, output.Sanitize(name))
 }
 
 func outPath(base, kind, ext string) string {

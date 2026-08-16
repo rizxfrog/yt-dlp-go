@@ -197,7 +197,10 @@ func formatDuration(sec float64, layout string) string {
 // separators '/' and '\' ARE rewritten to '_', so this is only safe to apply to a
 // single filename component — see SanitizePath for whole paths.
 func Sanitize(s string) string {
-	r := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_")
+	r := strings.NewReplacer(
+		"/", "_", "\\", "_", ":", "_", "*", "_", "?", "_", "\"", "_",
+		"<", "_", ">", "_", "|", "_", "&", "_", ",", "_", "'", "_",
+	)
 	return r.Replace(s)
 }
 

@@ -201,10 +201,102 @@ func Parse(args []string) (*Options, []string, error) {
 	fs.BoolVar(&o.Help, "h", false, "show help")
 	fs.BoolVar(&o.Help, "help", false, "alias of -h")
 
-	if err := fs.Parse(args); err != nil {
+	// Go's flag package stops parsing at the first non-flag argument, which
+	// breaks commands like `yt-dlp-go URL --cookies file` (flags after the URL
+	// would be treated as URLs). Reorder the arguments so all flags and their
+	// values come first, then all positional (URL) arguments, before parsing.
+	reordered := reorderArgs(fs, args)
+	if err := fs.Parse(reordered); err != nil {
 		return nil, nil, err
 	}
 	return o, fs.Args(), nil
+}
+
+// boolFlag mirrors the unexported flag.boolFlag interface so we can tell
+// boolean flags (which consume no following value) apart from value flags.
+type boolFlag interface {
+	IsBoolFlag() bool
+}
+
+// reorderArgs moves every recognized flag (with its value argument, if any)
+// ahead of the positional arguments, so flag.Parse sees them before the first
+// URL. Unknown leading tokens and everything after "--" are left as-is so the
+// extractor can report them (as yt-dlp does for unknown URLs/options).
+func reorderArgs(fs *flag.FlagSet, args []string) []string {
+	var flags []string
+	var positional []string
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+
+		// "--" terminates flag parsing: everything after it is positional.
+		if arg == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+
+		name, inlineVal, isFlag := splitFlagToken(arg)
+		if !isFlag {
+			// Not a flag: a positional argument (URL).
+			positional = append(positional, arg)
+			i++
+			continue
+		}
+
+		fl := fs.Lookup(name)
+		if fl == nil {
+			// Unknown flag: leave it (and nothing else) for flag.Parse to
+			// surface as an error, matching prior behaviour.
+			flags = append(flags, arg)
+			i++
+			continue
+		}
+
+		// A value supplied inline (-f=best / --cookies=file) consumes no
+		// following argument.
+		if inlineVal {
+			flags = append(flags, arg)
+			i++
+			continue
+		}
+
+		// Boolean flags take no following value.
+		if bf, ok := fl.Value.(boolFlag); ok && bf.IsBoolFlag() {
+			flags = append(flags, arg)
+			i++
+			continue
+		}
+
+		// Value flag: consume the flag and the next token as its value.
+		flags = append(flags, arg)
+		if i+1 < len(args) {
+			flags = append(flags, args[i+1])
+			i += 2
+		} else {
+			// Missing value: let flag.Parse report the error.
+			flags = append(flags, "")
+			i++
+		}
+	}
+	return append(flags, positional...)
+}
+
+// splitFlagToken splits a single argument into its flag name and, for the
+// -flag=value form, an inline value. It reports whether the token looks like a
+// flag (starts with '-' and is not exactly "-").
+func splitFlagToken(arg string) (name string, inline bool, isFlag bool) {
+	if len(arg) < 2 || arg[0] != '-' {
+		return "", false, false
+	}
+	// Strip one or two leading dashes.
+	body := arg[1:]
+	if body[0] == '-' {
+		body = body[1:]
+	}
+	if eq := strings.Index(body, "="); eq >= 0 {
+		return body[:eq], true, true
+	}
+	return body, false, true
 }
 
 // ImpersonateTarget normalises a --impersonate value into a browser key.
