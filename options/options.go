@@ -75,6 +75,11 @@ type Options struct {
 	SponsorblockCategories string // --sponsorblock-categories (comma-separated)
 	EmbedChapters          bool   // --embed-chapters
 
+	// Metadata output
+	EmbedMetadata    bool // --embed-metadata (write metadata into the file)
+	WriteThumbnail   bool // --write-thumbnail (save the cover image)
+	WriteDescription bool // --write-description (save the description)
+
 	// Post / output controls
 	FFmpegLocation string // --ffmpeg-location
 	WriteInfoJSON  bool   // --write-info-json
@@ -182,6 +187,9 @@ func Parse(args []string) (*Options, []string, error) {
 	fs.BoolVar(&o.SponsorblockRemove, "sponsorblock-remove", false, "remove SponsorBlock segments from the video")
 	fs.StringVar(&o.SponsorblockCategories, "sponsorblock-categories", "", "SponsorBlock categories to act on (comma-separated; default sponsor)")
 	fs.BoolVar(&o.EmbedChapters, "embed-chapters", false, "embed chapter markers in the downloaded file")
+	fs.BoolVar(&o.EmbedMetadata, "embed-metadata", false, "embed metadata (title/uploader/date/description/statistics) into the file")
+	fs.BoolVar(&o.WriteThumbnail, "write-thumbnail", false, "save the video thumbnail")
+	fs.BoolVar(&o.WriteDescription, "write-description", false, "save the video description")
 
 	fs.BoolVar(&o.Verbose, "v", false, "verbose logging")
 	fs.BoolVar(&o.Verbose, "verbose", false, "alias of -v")

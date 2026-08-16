@@ -327,6 +327,41 @@ func (y *YoutubeDL) processInfo(info *extractor.Info) error {
 				}
 			}
 		}
+
+		// --embed-metadata
+		if y.Opts.EmbedMetadata {
+			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
+				pp := postprocessor.FFmpegMetadata{
+					FFmpeg:       ff,
+					Title:        info.Title,
+					Artist:       info.Uploader,
+					Date:         info.UploadDate,
+					Description:  info.Description,
+					ViewCount:    info.ViewCount,
+					LikeCount:    info.LikeCount,
+					CommentCount: info.CommentCount,
+					RepostCount:  info.RepostCount,
+				}
+				if out, merr := pp.Process(final, y.Opts); merr == nil {
+					logPrintf(os.Stdout, "[postprocess] metadata -> %s\n", out)
+					final = out
+				} else if y.Opts.Verbose {
+					logPrintf(os.Stderr, "[warn] embed metadata failed: %v\n", merr)
+				}
+			}
+		}
+	}
+
+	// Write thumbnail.
+	if y.Opts.WriteThumbnail && info.Thumbnail != "" {
+		if err := y.writeThumbnail(info.Thumbnail, base); err != nil && y.Opts.Verbose {
+			logPrintf(os.Stderr, "[warn] write thumbnail failed: %v\n", err)
+		}
+	}
+
+	// Write description.
+	if y.Opts.WriteDescription && info.Description != "" {
+		_ = os.WriteFile(base+".description", []byte(info.Description), 0o644)
 	}
 
 	// Subtitles.
@@ -411,6 +446,53 @@ func trimPath(base string, n int) string {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// writeThumbnail downloads the cover image to base + a suitable extension.
+func (y *YoutubeDL) writeThumbnail(thumbURL, base string) error {
+	req, err := http.NewRequest(http.MethodGet, thumbURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := y.Client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET %s: status %d", thumbURL, resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	ext := thumbnailExt(resp.Header.Get("Content-Type"), thumbURL)
+	return os.WriteFile(base+ext, data, 0o644)
+}
+
+// thumbnailExt picks a file extension from a Content-Type header, falling back
+// to the URL's path suffix, then to .jpg.
+func thumbnailExt(contentType, u string) string {
+	switch {
+	case strings.Contains(contentType, "png"):
+		return ".png"
+	case strings.Contains(contentType, "webp"):
+		return ".webp"
+	case strings.Contains(contentType, "avif"):
+		return ".avif"
+	case strings.Contains(contentType, "jpeg"), strings.Contains(contentType, "jpg"):
+		return ".jpg"
+	}
+	low := strings.ToLower(u)
+	for _, ext := range []string{".png", ".webp", ".avif", ".jpg", ".jpeg"} {
+		if strings.Contains(low, ext) {
+			if ext == ".jpeg" {
+				return ".jpg"
+			}
+			return ext
+		}
+	}
+	return ".jpg"
 }
 
 // writeSubtitles downloads (and optionally converts) the requested subtitle tracks.

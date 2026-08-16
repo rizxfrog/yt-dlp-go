@@ -100,8 +100,9 @@ go build -tags utls -o yt-dlp-go-utls .
   **HLS** and **DASH (MPD)** fragment downloaders (SegmentTemplate/Base/List,
   concurrent fragments, AES-128-CBC decryption, TS/m4s concatenation).
 - **Postprocessors**: ffmpeg merge, video remux (`--remux-video`), audio
-  extraction (`-x` with bitrate/quality), metadata + embedded thumbnail, subtitle
-  embed/convert, chapter embedding (`--embed-chapters`).
+  extraction (`-x` with bitrate/quality), metadata + embedded thumbnail
+  (`--embed-metadata`: title/uploader/date/description/view/like/comment/
+  repost counts), subtitle embed/convert, chapter embedding (`--embed-chapters`).
 - **SponsorBlock**: `--sponsorblock-mark` fetches crowd-sourced skip segments
   (via the SponsorBlock API) and marks them as `[SponsorBlock]: <category>`
   chapters; `--sponsorblock-remove` cuts those segments out of the file (ffmpeg
@@ -114,7 +115,8 @@ go build -tags utls -o yt-dlp-go-utls .
   1-based slicing; `--no-playlist` takes the first entry; `DownloadURLs` runs
   multiple URLs concurrently with per-URL error isolation.
 - **Options**: `--download-archive`, `--no-overwrite`, `--dateafter/before`,
-  `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, proxy, cookies,
+  `--print`, `--trim-filenames`, `--simulate`, `--dump-json`, `--write-thumbnail`,
+  `--write-description`, proxy, cookies,
   impersonation, retries, etc.
 - **Extractors**: YouTube — stream URLs are taken from the **InnerTube player API**
   (`POST /youtubei/v1/player`) rather than the watch page, because YouTube no

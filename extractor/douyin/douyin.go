@@ -81,11 +81,13 @@ func (DouyinIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.Info
 // parseAwemeDetail converts a raw aweme_detail object into a normalised Info.
 func parseAwemeDetail(detail map[string]any, pageURL string) *extractor.Info {
 	desc := extractor.StrOrNone(detail["desc"])
+	channel := extractor.StrOrNone(extractor.TraverseObj(detail, "author", "nickname"))
 	info := &extractor.Info{
 		ID:          extractor.StrOrNone(detail["aweme_id"]),
 		Title:       desc,
 		Description: desc,
 		Uploader:    extractor.StrOrNone(extractor.TraverseObj(detail, "author", "unique_id")),
+		Channel:     channel,
 		WebpageURL:  pageURL,
 		Ext:         "mp4",
 		Subtitles:   map[string][]extractor.Subtitle{},
@@ -100,6 +102,13 @@ func parseAwemeDetail(detail map[string]any, pageURL string) *extractor.Info {
 	if video, ok := detail["video"].(map[string]any); ok {
 		info.Thumbnail = coverURL(video)
 		info.Formats = buildFormats(video)
+	}
+	// statistics: play_count / digg_count / comment_count / share_count / collect_count.
+	if st, ok := detail["statistics"].(map[string]any); ok {
+		info.ViewCount = int64(extractor.IntOrNone(st["play_count"]))
+		info.LikeCount = int64(extractor.IntOrNone(st["digg_count"]))
+		info.CommentCount = int64(extractor.IntOrNone(st["comment_count"]))
+		info.RepostCount = int64(extractor.IntOrNone(st["share_count"]))
 	}
 	return info
 }

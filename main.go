@@ -67,6 +67,9 @@ Options (subset of yt-dlp):
   --sponsorblock-remove     cut SponsorBlock segments out of the video
   --sponsorblock-categories CATS  categories to act on (default: sponsor)
   --embed-chapters          embed chapter markers into the file
+  --embed-metadata          embed metadata (title/uploader/date/description/stats)
+  --write-thumbnail         save the video thumbnail
+  --write-description       save the video description
   --proxy URL               HTTP(S)/SOCKS proxy
   --cookies FILE            Netscape/Mozilla cookies.txt
   --no-check-certificates   ignore TLS errors

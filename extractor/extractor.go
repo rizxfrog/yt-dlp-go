@@ -50,18 +50,24 @@ type Format struct {
 
 // Info is the normalised extraction result.
 type Info struct {
-	ID          string
-	Title       string
-	Description string
-	Uploader    string
-	UploadDate  string
-	Duration    float64
-	Thumbnail   string
-	WebpageURL  string
-	Ext         string
-	Formats     []Format
-	Subtitles   map[string][]Subtitle
-	IsLive      bool
+	ID           string
+	Title        string
+	Description  string
+	Uploader     string
+	UploadDate   string
+	Duration     float64
+	Thumbnail    string
+	WebpageURL   string
+	Ext          string
+	Channel      string // channel / author display name (when distinct from Uploader)
+	ViewCount    int64
+	LikeCount    int64
+	CommentCount int64
+	RepostCount  int64 // shares / reposts
+	Categories   []string
+	Formats      []Format
+	Subtitles    map[string][]Subtitle
+	IsLive       bool
 	// Entries holds the child Info objects when this result is a playlist /
 	// channel / feed. A non-nil, non-empty Entries slice marks the result as a
 	// playlist that the core should iterate instead of downloading this node.

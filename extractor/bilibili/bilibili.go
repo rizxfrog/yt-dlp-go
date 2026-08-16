@@ -68,17 +68,22 @@ func (BilibiliIE) Extract(ctx *extractor.Context, pageURL string) (*extractor.In
 	}
 
 	info := &extractor.Info{
-		ID:          meta.BVID,
-		Title:       meta.Title,
-		Description: meta.Desc,
-		Uploader:    meta.Owner,
-		UploadDate:  meta.PubDate,
-		Thumbnail:   httpsThumbnail(meta.Pic),
-		WebpageURL:  pageURL,
-		Ext:         "mp4",
-		Duration:    meta.Duration,
-		Subtitles:   map[string][]extractor.Subtitle{},
-		Raw:         meta.Raw,
+		ID:           meta.BVID,
+		Title:        meta.Title,
+		Description:  meta.Desc,
+		Uploader:     meta.Owner,
+		Channel:      meta.Owner,
+		UploadDate:   meta.PubDate,
+		Thumbnail:    httpsThumbnail(meta.Pic),
+		WebpageURL:   pageURL,
+		Ext:          "mp4",
+		Duration:     meta.Duration,
+		ViewCount:    meta.View,
+		LikeCount:    meta.Like,
+		CommentCount: meta.Reply,
+		RepostCount:  meta.Share,
+		Subtitles:    map[string][]extractor.Subtitle{},
+		Raw:          meta.Raw,
 	}
 
 	// Best-effort media resolution via the WBI-signed playurl API.
@@ -105,6 +110,10 @@ type initialState struct {
 	AID      int64
 	Pic      string
 	Duration float64
+	View     int64
+	Like     int64
+	Reply    int64
+	Share    int64
 	Raw      map[string]any
 }
 
@@ -131,6 +140,10 @@ func parseInitialState(html string) (*initialState, error) {
 	if pub := extractor.IntOrNone(extractor.TraverseObj(vd, "pubdate")); pub > 0 {
 		s.PubDate = time.Unix(int64(pub), 0).UTC().Format("20060102")
 	}
+	s.View = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "view")))
+	s.Like = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "like")))
+	s.Reply = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "reply")))
+	s.Share = int64(extractor.IntOrNone(extractor.TraverseObj(vd, "stat", "share")))
 	return s, nil
 }
 

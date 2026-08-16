@@ -54,6 +54,19 @@ func TestMetadata_Args(t *testing.T) {
 	}
 }
 
+func TestMetadata_StatsArgs(t *testing.T) {
+	p := FFmpegMetadata{ViewCount: 100, LikeCount: 50, CommentCount: 20, RepostCount: 5}
+	got := p.Args("v.mkv")
+	if last := got[len(got)-1]; last != "v.meta.tmp.mkv" {
+		t.Errorf("output = %q, want v.meta.tmp.mkv", last)
+	}
+	for _, want := range []string{"view_count=100", "like_count=50", "comment_count=20", "repost_count=5"} {
+		if !contains(got, want) {
+			t.Errorf("metadata args missing %q: %v", want, got)
+		}
+	}
+}
+
 func TestEmbedSubtitle_Args(t *testing.T) {
 	p := FFmpegEmbedSubtitle{SubtitleFile: "sub.srt", OutputFormat: "mkv"}
 	got := p.Args("v.mp4")
