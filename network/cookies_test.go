@@ -150,3 +150,37 @@ func TestNewClient_BadCookiesFile(t *testing.T) {
 		t.Fatal("expected error for bad cookies file")
 	}
 }
+
+func TestLoadCookiesFile_QuotedJSONValue(t *testing.T) {
+	// Bilibili's bmg_af_sc cookie has a JSON value containing double quotes,
+	// which net/http rejects unless the value is percent-encoded on load.
+	content := ".bilibili.com\tTRUE\t/\tFALSE\t0\tbmg_af_sc\t{\"none\":{\"on\":1}}\n"
+	path := writeTempCookies(t, content)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loadCookiesFile(jar, path); err != nil {
+		t.Fatal(err)
+	}
+
+	got := names(t, jar, "https://www.bilibili.com/")
+	if !got["bmg_af_sc"] {
+		t.Fatal("quoted-JSON cookie value should be retained (percent-encoded), not dropped")
+	}
+}
+
+func TestSanitizeCookieValue(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"plain-value", "plain-value"},
+		{"a b", "a%20b"},
+		{"{\"x\":1}", "{%22x%22:1}"},
+		{"a,b;c", "a%2Cb%3Bc"},
+	}
+	for _, c := range cases {
+		if got := sanitizeCookieValue(c.in); got != c.want {
+			t.Errorf("sanitizeCookieValue(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -207,7 +207,7 @@ func loadCookiesFile(jar http.CookieJar, path string) error {
 
 		cookie := &http.Cookie{
 			Name:     name,
-			Value:    value,
+			Value:    sanitizeCookieValue(value),
 			Path:     pathField,
 			Secure:   secure,
 			HttpOnly: httpOnly,
@@ -236,4 +236,49 @@ func loadCookiesFile(jar http.CookieJar, path string) error {
 		jar.SetCookies(u, []*http.Cookie{cookie})
 	}
 	return sc.Err()
+}
+
+// cookieValueOctet reports whether b is a valid RFC 6265 cookie-octet: the
+// byte set net/http accepts in a Cookie.Value without percent-encoding. Bytes
+// outside this set (e.g. '"', ',', ';', '\\', control chars, and any byte
+// >= 0x7f) trigger net/http's "invalid byte in Cookie.Value" warning and cause
+// the whole cookie to be dropped by the jar.
+func cookieValueOctet(b byte) bool {
+	return b == 0x21 ||
+		(b >= 0x23 && b <= 0x2b) ||
+		(b >= 0x2d && b <= 0x3a) ||
+		(b >= 0x3c && b <= 0x5b) ||
+		(b >= 0x5d && b <= 0x7e)
+}
+
+// sanitizeCookieValue percent-encodes any byte in a cookie value that is not a
+// valid cookie-octet. Cookies exported by browsers (e.g. Bilibili's bmg_af_sc,
+// whose value is a JSON object containing double quotes) otherwise make
+// net/http log "invalid byte '"' in Cookie.Value" and silently drop the cookie.
+// Encoding preserves the value through the jar instead of discarding it.
+func sanitizeCookieValue(v string) string {
+	needsEscape := false
+	for i := 0; i < len(v); i++ {
+		if !cookieValueOctet(v[i]) {
+			needsEscape = true
+			break
+		}
+	}
+	if !needsEscape {
+		return v
+	}
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(v))
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if cookieValueOctet(c) {
+			b.WriteByte(c)
+		} else {
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0xf])
+		}
+	}
+	return b.String()
 }
