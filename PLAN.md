@@ -3,7 +3,7 @@
 > 目标：在 `D:\code\yt-dlp-go` 用 **Go（仅标准库优先，必要处引入少量成熟依赖）**
 > 实现一个功能上覆盖 yt-dlp **大部分核心能力** 的下载引擎：网络、格式选择、输出模板、
 > 多种协议下载（HTTP / HLS / DASH）、后处理、字幕、播放列表、并发与续传，并配套
-> 一个可运行的提取器子集（YouTube / Bilibili / TikTok / Acast / 直链兜底）。
+> 一个可运行的提取器子集（YouTube / Bilibili / TikTok / Douyin / Acast / 直链兜底）。
 >
 > 本文件即进度看板：每个任务完成后更新「状态」与「备注」，并 `git commit`。
 
@@ -65,6 +65,7 @@ main.go
 | 17 | 实现 `--format-sort` (`-S`) 多键排序 | ✅ 完成 | `go test ./format/ ./...` 全绿 + 二进制可解析 `-S` | 新增 `format/format_sort.go`：`Sort(formats, spec)` 稳定多键排序，支持字段 res/height/width/fps/tbr/br/vbr/abr/size/asr/channels/quality/has_audio/has_video/pref/proto/source/ext/vcodec/acodec/codec(含 `codec:vp9.2` 偏好)/dynamic_range(hdr)/lang/id，修饰符 `+`(升)/`-`(降)/`!`(反转)。`format.Select` 改为可变参 `sortSpec ...string`；传入排序后 `best`/`worst`/`bestvideo`/`bestaudio` 按排序后的位置选取（首个/末个匹配 kind 且在过滤池内者），未传 `-S` 时保持原 quality() 行为完全不变。扩展 `extractor.Format` 增加 VBR/ABR/AudioSampleRate/AudioChannels/DynamicRange/Source/Language/Preference 字段并在 `fieldValue` 暴露为过滤字段；YouTube `buildFormat` 填充 asr/channels/source/dynamic_range。新增 `format_sort_test.go`：res 升降序、codec 偏好顺序、双键 res,fps、tie 稳定序、空 spec 不改变顺序、Select 集成（按 -S 选最高 res、!res 选最低、显式 itag 不受排序影响）。注：实时 YouTube 拉取当前沙箱不可达（代理 EOF / 直连超时），属环境问题；排序逻辑已由单测充分覆盖，二进制已构建且 `-S` 解析正常 |
 
 | 18 | 提质现有提取器（直播 HLS + Bilibili 画质） | ✅ 完成 | `go test ./...` 全绿；Bilibili 直连 `-s` 实测返回 9 格式 | **YouTube 直播流**：`youtube.go` 新增 `youtubeIsLive`（`videoDetails.isLiveContent`/`isLive`）与 `buildLiveFormats`（读 `streamingData.hlsManifestUrl` → 生成 `Protocol: m3u8_native` 格式，core 自动路由到分片下载器）；当 `adaptiveFormats` 为空但为直播时不再误报 age-restricted，并在 adaptive 解析落空时以 HLS 兜底。`info.IsLive` 已置位。新增 `TestYouTubeIsLive`/`TestBuildLiveFormats`。**Bilibili 画质升级**：`fetchFormats` 的 playurl 请求 `qn` 由 `64` 提到 `127`、`fnval` 由 `16` 提到 `4048`，让 API 返回完整画质梯（1080p+/4K/HDR），无 cookie 时自动降级到 720p 默认；缩略图 `http→https`；`extractPlayurlFormats` 补充多画质+HDR 解析测试（`TestExtractPlayurlFormats_MultiQualityHDR`）与 `TestHttpsThumbnail`。注意：Bilibili 经企业代理会 412（WAF 拦截代理 IP），直连正常；YouTube 直播路径沙箱不可达，已由单测覆盖逻辑 |
+| 19 | 新增抖音（Douyin）提取器 | ✅ 完成 | `go test ./...` 全绿；带 cookie 真机 `-j` 得 7 格式、默认 `best` 选无水印 720p | 新增 `extractor/douyin`：匹配 `douyin.com/video|note/<id>`、`douyin.com/jingxuan?modal_id=<id>`、`iesdouyin.com/share/video/<id>`；走 `aweme/v1/web/aweme/detail` JSON（**无需 a_bogus 签名**，只要新鲜 `s_v_web_id`/`sid_tt` cookie）。解析 `video.play_addr`/`play_addr_265`/`play_addr_h264`/`play_addr_bytevc1`/`bit_rate[]`（无水印，pref -1）与 `download_addr`（带水印，pref -2），`url_key` 正则解出 codec（bytevc1→h265、bytevc2→不可播放 pref -100）/短边分辨率/码率，按宽高比还原 width/height。**顺带修 `format.quality()` 把 `Preference` 作为主导排序项**（镜像 yt-dlp），使默认 `best` 选无水印而非更高分辨率的水印版。`core.go` 注册 + `main.go`/`README`/`PLAN` 更新；`douyin_test.go`（URL 匹配/url_key/codec/格式/元数据）+ `format_preference_test.go`（best 尊重 preference） |
 
 图例：✅ 完成  🔲 待做  🔧 进行中  ⚠️ 受阻
 
@@ -132,6 +133,9 @@ main.go
 - **Bilibili**：`bilibili.com/video/BVxxx`、`.tv` 短链；解析 `window.__INITIAL_STATE__` /
   `playurl` API；支持多清晰度（需登录 cookie 才有高清）。
 - **TikTok**：`vm.tiktok.com`/`tiktok.com`；解析 `@__NEXT_DATA__` 或 `/api/v1/...`。
+- **Douyin（抖音）**：`douyin.com/video|note/<id>`、`jingxuan?modal_id=<id>`、
+  `iesdouyin.com/share/video/<id>`；走 `aweme/v1/web/aweme/detail`（无需 a_bogus，
+  只要新鲜 cookie），无水印 `play_addr*`/`bit_rate[]` 优先于水印 `download_addr`。
 - **YouTube 增强**：可选引入 `github.com/dop251/goja` 直接执行播放器签名函数，
   替代正则求值器（`DeobfuscateSignature` 作为降级）；增强 natsort、n参数。
 

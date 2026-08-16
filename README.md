@@ -9,7 +9,7 @@ downloader engine.
 > template engine (`-o`), native HTTP / HLS / DASH downloaders with resume, rate
 > limiting and retry, an ffmpeg postprocessor collection, subtitle download, a
 > playlist + concurrent multi-URL pipeline, and a curated extractor set
-> (YouTube, Bilibili, TikTok, Acast, and a direct-URL fallback). The engine is
+> (YouTube, Bilibili, TikTok, Douyin, Acast, and a direct-URL fallback). The engine is
 > built on the **Go standard library** plus a few small, pure-Go dependencies:
 > `github.com/dop251/goja` (an embedded ECMAScript engine) evaluates YouTube's
 > signature transform exactly as written, and an optional `-tags utls` build adds
@@ -44,6 +44,7 @@ extractor/              Info/Format types, Extractor interface, registry, helper
   /youtube              YouTube (InnerTube player API + sig/nsig deobfuscation + captions)
   /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl)
   /tiktok               TikTok (og:video meta + __NEXT_DATA__)
+  /douyin               Douyin 抖音 (aweme/v1/web/aweme/detail + no-watermark preference)
   /acast                Acast (JSON-API pattern)
   /generic              Direct media-URL fallback
 ```
@@ -120,7 +121,11 @@ go build -tags utls -o yt-dlp-go-utls .
   `x = NAME(x)` / the module form `x = (0, MOD.NAME)(x)`) are also supported via
   the embedded `goja` engine. **Bilibili** (metadata from
   `window.__INITIAL_STATE__` + pure-Go WBI-signed `playurl` for DASH/FLV),
-  **TikTok** (og:video meta + `__NEXT_DATA__`), Acast, and a direct-URL
+  **TikTok** (og:video meta + `__NEXT_DATA__`), **Douyin** (抖音, the Chinese
+  TikTok: `aweme/v1/web/aweme/detail` JSON with fresh `s_v_web_id`/`sid_tt`
+  cookies — no `a_bogus` JS signature needed — and no-watermark playback
+  streams preferred over the watermarked `download_addr` via the format
+  `Preference` field), Acast, and a direct-URL
   generic fallback.
 - **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
   `utls`, reproducing the impersonated browser's ClientHello.

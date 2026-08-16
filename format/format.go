@@ -391,7 +391,12 @@ func matchesKind(f extractor.Format, k kind) bool {
 }
 
 func quality(f extractor.Format) int {
-	return f.Height*1_000_000 + int(f.TBR)*1000 + int(f.Filesize)
+	// Preference dominates, mirroring yt-dlp: the extractor-assigned preference
+	// outranks resolution/bitrate, so e.g. an unwatermarked 720p (pref -1) beats
+	// a watermarked 1080p (pref -2). The 1e12 scale keeps a ±1 preference step
+	// larger than any realistic Height*1e6 term (≤ ~8e9), so the comparison is
+	// effectively preference-first with quality as the tie-breaker.
+	return f.Preference*1_000_000_000_000 + f.Height*1_000_000 + int(f.TBR)*1000 + int(f.Filesize)
 }
 
 func audioQuality(f extractor.Format) int {
