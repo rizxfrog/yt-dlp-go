@@ -138,12 +138,12 @@ func (y *YoutubeDL) downloadPlaylist(pl *extractor.Info) error {
 	return firstErr
 }
 
-// markSponsorblock fetches SponsorBlock skip segments for the video and appends
-// them to info.Chapters as "[SponsorBlock]: <category>" markers (the yt-dlp
-// --sponsorblock-mark behaviour). Failures are non-fatal.
-func (y *YoutubeDL) markSponsorblock(info *extractor.Info) {
+// fetchSponsorChapters fetches SponsorBlock skip segments for the video and
+// returns them as "[SponsorBlock]: <category>" chapters, sorted by start time.
+// Failures are non-fatal (nil is returned on error or when no segments exist).
+func (y *YoutubeDL) fetchSponsorChapters(info *extractor.Info) []extractor.Chapter {
 	if info.ID == "" {
-		return
+		return nil
 	}
 	cats := sponsorblock.ParseCategories(y.Opts.SponsorblockCategories)
 	segs, err := sponsorblock.Fetch(y.Client, info.ID, cats)
@@ -151,31 +151,50 @@ func (y *YoutubeDL) markSponsorblock(info *extractor.Info) {
 		if y.Opts.Verbose {
 			logPrintf(os.Stderr, "[sponsorblock] %v\n", err)
 		}
-		return
+		return nil
 	}
 	if len(segs) == 0 {
-		return
+		return nil
 	}
+	chapters := make([]extractor.Chapter, 0, len(segs))
 	for _, s := range segs {
-		info.Chapters = append(info.Chapters, extractor.Chapter{
+		chapters = append(chapters, extractor.Chapter{
 			Title:     "[SponsorBlock]: " + s.Category,
 			StartTime: s.StartTime,
 			EndTime:   s.EndTime,
 		})
 	}
+	sort.SliceStable(chapters, func(i, j int) bool {
+		return chapters[i].StartTime < chapters[j].StartTime
+	})
+	return chapters
+}
+
+// markSponsorblock appends pre-fetched SponsorBlock chapters to info.Chapters
+// as "[SponsorBlock]: <category>" markers (the yt-dlp --sponsorblock-mark
+// behaviour).
+func (y *YoutubeDL) markSponsorblock(info *extractor.Info, chapters []extractor.Chapter) {
+	if len(chapters) == 0 {
+		return
+	}
+	info.Chapters = append(info.Chapters, chapters...)
 	sort.SliceStable(info.Chapters, func(i, j int) bool {
 		return info.Chapters[i].StartTime < info.Chapters[j].StartTime
 	})
 	// Log to stderr so -j/--dump-json stdout stays pure JSON.
-	logPrintf(os.Stderr, "[sponsorblock] %d segments marked as chapters\n", len(segs))
+	logPrintf(os.Stderr, "[sponsorblock] %d segments marked as chapters\n", len(chapters))
 }
 
 // processInfo runs the download + postprocess pipeline for one already-extracted
 // Info (a single video or a playlist entry).
 func (y *YoutubeDL) processInfo(info *extractor.Info) error {
-	// SponsorBlock mark happens first so --dump-json / --print see the chapters.
-	if y.Opts.SponsorblockMark {
-		y.markSponsorblock(info)
+	// SponsorBlock runs first so --dump-json / --print see the marked chapters.
+	var sponsorChapters []extractor.Chapter
+	if y.Opts.SponsorblockMark || y.Opts.SponsorblockRemove {
+		sponsorChapters = y.fetchSponsorChapters(info)
+		if y.Opts.SponsorblockMark {
+			y.markSponsorblock(info, sponsorChapters)
+		}
 	}
 
 	// --print: render a single field and exit.
@@ -266,6 +285,19 @@ func (y *YoutubeDL) processInfo(info *extractor.Info) error {
 					final = out
 				} else if y.Opts.Verbose {
 					logPrintf(os.Stderr, "[warn] remux failed: %v\n", rerr)
+				}
+			}
+		}
+
+		// --sponsorblock-remove: cut the sponsor segments out of the video.
+		if y.Opts.SponsorblockRemove && len(sponsorChapters) > 0 {
+			if ff, ferr := postprocessor.FindFFmpeg(y.Opts); ferr == nil {
+				pp := postprocessor.SponsorBlockRemove{FFmpeg: ff, Segments: sponsorChapters, Duration: info.Duration}
+				if out, rerr := pp.Process(final, y.Opts); rerr == nil {
+					logPrintf(os.Stdout, "[postprocess] sponsor segments removed -> %s\n", out)
+					final = out
+				} else if y.Opts.Verbose {
+					logPrintf(os.Stderr, "[warn] sponsorblock remove failed: %v\n", rerr)
 				}
 			}
 		}

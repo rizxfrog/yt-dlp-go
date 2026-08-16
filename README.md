@@ -104,9 +104,10 @@ go build -tags utls -o yt-dlp-go-utls .
   embed/convert, chapter embedding (`--embed-chapters`).
 - **SponsorBlock**: `--sponsorblock-mark` fetches crowd-sourced skip segments
   (via the SponsorBlock API) and marks them as `[SponsorBlock]: <category>`
-  chapters; `--sponsorblock-categories` selects which categories to act on.
-  Video chapters are also parsed from YouTube descriptions (`MM:SS title` lines)
-  and merged with the SponsorBlock markers.
+  chapters; `--sponsorblock-remove` cuts those segments out of the file (ffmpeg
+  concat demuxer, stream copy); `--sponsorblock-categories` selects which
+  categories to act on. Video chapters are also parsed from YouTube
+  descriptions (`MM:SS title` lines) and merged with the SponsorBlock markers.
 - **Subtitles**: HLS `#EXT-X-MEDIA` parsing + download, YouTube caption-track
   extraction, language filtering (`--sub-langs`), format conversion.
 - **Playlists & concurrency**: `Info.Entries` playlist model; `--playlist-items`
