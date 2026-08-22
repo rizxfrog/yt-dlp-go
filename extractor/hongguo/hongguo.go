@@ -28,7 +28,7 @@ func init()                    { extractor.Register(HongguoIE{}) }
 func (HongguoIE) Name() string { return "hongguo" }
 
 var (
-	hongguoInputRE = regexp.MustCompile(`(?i)^(?:hongguo:\d{10,20}|https?://(?:www\.)?(?:novelquickapp\.com/s/[A-Za-z0-9]+/?|hongguoduanju\.com/\S*))$`)
+	hongguoInputRE = regexp.MustCompile(`(?i)^(?:hongguo:\d{10,20}|https?://(?:www\.)?(?:novelquickapp\.com/s/[A-Za-z0-9_-]+/?|hongguoduanju\.com/\S*))$`)
 	decimalIDRE    = regexp.MustCompile(`\d{10,20}`)
 	seriesIDRE     = regexp.MustCompile(`"series_id"\s*:\s*"?(\d{10,20})"?`)
 	deviceOnce     sync.Once
@@ -144,7 +144,7 @@ func expandShare(ctx *extractor.Context, raw string) (string, error) {
 	if err := json.Unmarshal([]byte(scheme), &payload); err != nil {
 		return "", fmt.Errorf("hongguo: decode schemeParams: %w", err)
 	}
-	for _, key := range []string{"video_id", "vid"} {
+	for _, key := range []string{"video_series_id", "series_id", "video_id", "vid"} {
 		if id := extractor.StrOrNone(payload[key]); decimalIDRE.MatchString(id) {
 			return decimalIDRE.FindString(id), nil
 		}
