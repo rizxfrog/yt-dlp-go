@@ -45,7 +45,7 @@ extractor/              Info/Format types, Extractor interface, registry, helper
   /bilibili             Bilibili (window.__INITIAL_STATE__ + WBI-signed playurl, incl. UGC 合集 seasons)
   /tiktok               TikTok (og:video meta + __NEXT_DATA__)
   /douyin               Douyin 抖音 (aweme/v1/web/aweme/detail + no-watermark preference)
-  /hongguo              红果短剧 hongguoduanju (_ROUTER_DATA SSR payload)
+  /hongguo              红果短剧 (short links/detail/player, signed fqnovel API + CENC)
   /acast                Acast (JSON-API pattern)
   /generic              Direct media-URL fallback
 ```
@@ -84,6 +84,12 @@ go build -tags utls -o yt-dlp-go-utls .
 ./yt-dlp-go -x --audio-format mp3 "URL"               # extract audio
 ./yt-dlp-go "https://www.bilibili.com/video/BV1xx411c7XD"
 ./yt-dlp-go "https://www.tiktok.com/@user/video/123"
+
+# Hongguo short link: native fqnovel signing and CENC decryption (ffmpeg required)
+export DUANJU_DEVICE_ID=5938271046582391746
+export DUANJU_INSTALL_ID=6745102938476510293
+./yt-dlp-go --playlist-items 1 "https://novelquickapp.com/s/OyZtu4aCveY/"
+# Also accepted: hongguo:<video_id>, hongguoduanju.com/detail?series_id=..., /player/...
 ```
 
 ## What works today
@@ -99,7 +105,8 @@ go build -tags utls -o yt-dlp-go-utls .
   limiting (`-r 50K`), exponential-backoff retry, non-retryable 4xx; native
   **HLS** and **DASH (MPD)** fragment downloaders (SegmentTemplate/Base/List,
   concurrent fragments, AES-128-CBC decryption, TS/m4s concatenation).
-- **Postprocessors**: ffmpeg merge, video remux (`--remux-video`), audio
+- **Postprocessors**: ffmpeg merge, Hongguo CENC decryption (first-frame
+  playability check, atomic replacement, rerun-safe resume), video remux (`--remux-video`), audio
   extraction (`-x` with bitrate/quality), metadata + embedded thumbnail
   (`--embed-metadata`: title/uploader/date/description/view/like/comment/
   repost counts), subtitle embed/convert, chapter embedding (`--embed-chapters`).
@@ -136,10 +143,16 @@ go build -tags utls -o yt-dlp-go-utls .
   TikTok: `aweme/v1/web/aweme/detail` JSON with fresh `s_v_web_id`/`sid_tt`
   cookies — no `a_bogus` JS signature needed — and no-watermark playback
   streams preferred over the watermarked `download_addr` via the format
-  `Preference` field), **红果短剧** (`hongguoduanju.com` — the SSR page embeds
-  the playable mp4 in a `_ROUTER_DATA` JSON blob; no API signature needed.
-  `/player/<sid>` expands the whole drama into a playlist (free episodes only),
-  `/player/<sid>/<vid>` grabs a single episode), Acast, and a direct-URL
+  `Preference` field), **红果短剧** (native `novelquickapp.com/s/...`,
+  `hongguoduanju.com/detail`/`player`, and `hongguo:<id>` support). The extractor
+  follows only the short link's first redirect, scopes `vid_list` to the exact
+  matching `series_id`, probes fqnovel type codes (`1004`, `1001`, `0`, `1`,
+  `2`, `19`), and signs `multi_video_model/v1` in pure Go. It decrypts the
+  returned SPADE URL/content key and passes the CENC key through the selected
+  format; core then uses ffmpeg to decrypt atomically before every other media
+  postprocessor. `DUANJU_DEVICE_ID` and `DUANJU_INSTALL_ID` may provide stable
+  19-digit identities; otherwise one pair is generated per process. No Python,
+  `GUOZI_SRC`, or plugin directory is required), Acast, and a direct-URL
   generic fallback.
 - **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
   `utls`, reproducing the impersonated browser's ClientHello.

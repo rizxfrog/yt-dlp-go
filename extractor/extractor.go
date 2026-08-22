@@ -47,6 +47,7 @@ type Format struct {
 	Language        string            // track language tag ("" if unknown)
 	Preference      int               // extractor-assigned preference (higher = better)
 	Headers         map[string]string // per-format HTTP headers (e.g. Referer for CDN hotlink checks)
+	DecryptionKey   string            // 16-byte CENC key encoded as lowercase hexadecimal
 }
 
 // Info is the normalised extraction result.

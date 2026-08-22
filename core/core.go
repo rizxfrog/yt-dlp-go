@@ -243,10 +243,22 @@ func (y *YoutubeDL) processInfo(info *extractor.Info) error {
 	for _, group := range groups {
 		final := groupFinalPath(base, group, y.Opts)
 		if y.Opts.NoOverwrites && fileExists(final) {
-			logPrintf(os.Stdout, "[download] %s exists, skipping (--no-overwrite)\n", final)
-			continue
+			encrypted := false
+			for _, f := range group {
+				if f.DecryptionKey != "" {
+					encrypted = true
+					break
+				}
+			}
+			if !encrypted {
+				logPrintf(os.Stdout, "[download] %s exists, skipping (--no-overwrite)\n", final)
+				continue
+			}
 		}
-		videoPath, audioPath := y.downloadGroup(group, base)
+		videoPath, audioPath, downloadErr := y.downloadGroup(group, base)
+		if downloadErr != nil {
+			return downloadErr
+		}
 		if videoPath == "" && audioPath == "" {
 			continue
 		}
@@ -384,7 +396,7 @@ func (y *YoutubeDL) processInfo(info *extractor.Info) error {
 
 // downloadGroup downloads all formats in a group, returning the video and audio
 // file paths (empty when that stream was not present).
-func (y *YoutubeDL) downloadGroup(group []extractor.Format, base string) (videoPath, audioPath string) {
+func (y *YoutubeDL) downloadGroup(group []extractor.Format, base string) (videoPath, audioPath string, retErr error) {
 	for _, f := range group {
 		kind := ""
 		if len(group) > 1 {
@@ -395,9 +407,40 @@ func (y *YoutubeDL) downloadGroup(group []extractor.Format, base string) (videoP
 			}
 		}
 		path := outPath(base, kind, f.Ext)
-		if err := y.downloadFormat(f.URL, f, path); err != nil {
-			logPrintf(os.Stderr, "[warn] downloading %s: %v\n", f.FormatID, err)
+		if f.DecryptionKey != "" && fileExists(path) {
+			ffmpeg, err := postprocessor.FindFFmpeg(y.Opts)
+			if err != nil {
+				return "", "", fmt.Errorf("decrypting %s: %w", f.FormatID, err)
+			}
+			if postprocessor.IsPlayable(path, ffmpeg) {
+				logPrintf(os.Stdout, "[download] %s already decrypted, skipping\n", path)
+			} else if err := postprocessor.DecryptCENC(path, f.DecryptionKey, ffmpeg); err != nil {
+				return "", "", fmt.Errorf("decrypting existing %s: %w", f.FormatID, err)
+			} else {
+				logPrintf(os.Stdout, "[postprocess] decrypted existing file -> %s\n", path)
+			}
+			switch kind {
+			case "video":
+				videoPath = path
+			case "audio":
+				audioPath = path
+			default:
+				videoPath = path
+			}
 			continue
+		}
+		if err := y.downloadFormat(f.URL, f, path); err != nil {
+			return "", "", fmt.Errorf("downloading %s: %w", f.FormatID, err)
+		}
+		if f.DecryptionKey != "" {
+			ffmpeg, err := postprocessor.FindFFmpeg(y.Opts)
+			if err != nil {
+				return "", "", fmt.Errorf("decrypting %s: %w", f.FormatID, err)
+			}
+			if err := postprocessor.DecryptCENC(path, f.DecryptionKey, ffmpeg); err != nil {
+				return "", "", fmt.Errorf("decrypting %s: %w", f.FormatID, err)
+			}
+			logPrintf(os.Stdout, "[postprocess] decrypted -> %s\n", path)
 		}
 		logPrintf(os.Stdout, "[download] %s -> %s\n", f.FormatID, path)
 		switch kind {
@@ -409,7 +452,7 @@ func (y *YoutubeDL) downloadGroup(group []extractor.Format, base string) (videoP
 			videoPath = path // single-format group
 		}
 	}
-	return videoPath, audioPath
+	return videoPath, audioPath, nil
 }
 
 // groupFinalPath estimates the on-disk path produced for a group (used for the

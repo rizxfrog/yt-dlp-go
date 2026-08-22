@@ -1,8 +1,14 @@
 package hongguo
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+
+	"yt-dlp-go/extractor"
 )
 
 func TestMatch(t *testing.T) {
@@ -10,9 +16,10 @@ func TestMatch(t *testing.T) {
 	cases := map[string]bool{
 		"https://hongguoduanju.com/player/7404776999618612286":                     true,
 		"https://hongguoduanju.com/player/7404776999618612286/7404780649162230846": true,
-		"https://www.hongguoduanju.com/player/123":                                 true,
+		"https://hongguoduanju.com/detail?series_id=7671213206915779646":           true,
+		"https://novelquickapp.com/s/OyZtu4aCveY/":                                 true,
+		"hongguo:7671213206915779646":                                              true,
 		"https://www.bilibili.com/video/BV1xx":                                     false,
-		"https://hongguoduanju.com/some/other/page":                                false,
 	}
 	for u, want := range cases {
 		if got := ie.Match(u); got != want {
@@ -21,111 +28,102 @@ func TestMatch(t *testing.T) {
 	}
 }
 
-func TestParsePlayerURL(t *testing.T) {
-	cases := []struct {
-		url      string
-		sid, vid string
-	}{
-		{"https://hongguoduanju.com/player/111", "111", ""},
-		{"https://hongguoduanju.com/player/111/222", "111", "222"},
-		{"https://hongguoduanju.com/player/111/222?x=1", "111", "222"},
-		{"https://www.bilibili.com/video/BV1", "", ""},
-	}
-	for _, c := range cases {
-		sid, vid := parsePlayerURL(c.url)
-		if sid != c.sid || vid != c.vid {
-			t.Errorf("parsePlayerURL(%q) = (%q,%q), want (%q,%q)", c.url, sid, vid, c.sid, c.vid)
+func TestInputVideoID(t *testing.T) {
+	for raw, want := range map[string]string{
+		"hongguo:7671213206915779646":                                              "7671213206915779646",
+		"https://hongguoduanju.com/detail?series_id=7671213206915779646":           "7671213206915779646",
+		"https://hongguoduanju.com/player/7671213206915779646/7671229514868853784": "7671229514868853784",
+	} {
+		got, err := inputVideoID(nil, raw)
+		if err != nil || got != want {
+			t.Errorf("inputVideoID(%q) = %q, %v; want %q", raw, got, err, want)
 		}
 	}
 }
 
-func TestExtractJSONAssign(t *testing.T) {
-	html := `<script>var x=1;</script><script data-script-src="modern-inline">_ROUTER_DATA = {"loaderData":{"a":{"video_player_info":{"main_url":"https://cdn.example/v.mp4"}}}}</script>`
-	obj, err := extractJSONAssign(html, "_ROUTER_DATA")
+func TestExpandShareOneRedirect(t *testing.T) {
+	scheme, _ := json.Marshal(map[string]any{"video_id": "7671213206915779646"})
+	z := "snssdk1128://video-detail-share?schemeParams=" + url.QueryEscape(string(scheme))
+	target := "https://example.test/video-detail-share?zlink=" + url.QueryEscape(z)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target, http.StatusFound)
+	}))
+	defer srv.Close()
+	ctx := testContext(srv.Client())
+	got, err := expandShare(ctx, srv.URL)
+	if err != nil || got != "7671213206915779646" {
+		t.Fatalf("expandShare = %q, %v", got, err)
+	}
+}
+
+func TestExpandShareEscapedReportParams(t *testing.T) {
+	report, _ := json.Marshal(map[string]any{"content_id": "7671213206915779646"})
+	scheme, _ := json.Marshal(map[string]any{"report_params": url.QueryEscape(string(report))})
+	z := "snssdk1128://video-detail-share?schemeParams=" + url.QueryEscape(string(scheme))
+	target := "https://example.test/video-detail-share?zlink=" + url.QueryEscape(z)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target, http.StatusFound)
+	}))
+	defer srv.Close()
+	got, err := expandShare(testContext(srv.Client()), srv.URL)
+	if err != nil || got != "7671213206915779646" {
+		t.Fatalf("expandShare = %q, %v", got, err)
+	}
+}
+
+func TestExtractSeriesExactBlock(t *testing.T) {
+	html := `x {"series_id":"9999999999999999999","series_name":"推荐剧","vid_list":["9111111111111111111"]}
+	{"series_id":"7671213206915779646","series_name":"开局一碗泡面","vid_list":["7671229514868853784","7671229514868853785"]}
+	{"series_id":"8888888888888888888","series_name":"下一个推荐","vid_list":["8222222222222222222"]}`
+	name, vids, err := extractSeries(html, "7671213206915779646")
 	if err != nil {
 		t.Fatal(err)
 	}
-	u := obj["loaderData"].(map[string]any)["a"].(map[string]any)["video_player_info"].(map[string]any)["main_url"]
-	if u != "https://cdn.example/v.mp4" {
-		t.Errorf("main_url = %v", u)
+	if name != "开局一碗泡面" || strings.Join(vids, ",") != "7671229514868853784,7671229514868853785" {
+		t.Fatalf("name=%q vids=%v", name, vids)
 	}
 }
 
-func playerPage() map[string]any {
-	return map[string]any{
-		"vid": "7404780627477662745",
-		"video_player_info": map[string]any{
-			"main_url":   "https://cdn.example/v1.mp4",
-			"duration":   float64(90.976),
-			"width":      "720",
-			"height":     "1280",
-			"poster_url": "https://cdn.example/poster.jpg",
-		},
-		"seriesDetail": map[string]any{
-			"series_name":  "朝阳似火",
-			"series_intro": "一部关于复仇的短剧",
-			"series_cover": "https://cdn.example/cover.jpg",
-			"vid_list": []any{
-				"7404780627477662745",
-				"7404780649162230846",
-			},
-		},
+func TestMakeVideoPayloadCompact(t *testing.T) {
+	got := string(makeVideoPayload("1004", "7671229514868853784"))
+	want := `{"biz_param":{"detail_page_version":0,"device_level":3,"disable_digg_stat":false,"need_all_video_definition":true,"need_mp4_align":false,"use_os_player":false,"use_server_dns":false,"video_platform":1024},"mixed_video_id_map":{"1004":["7671229514868853784"]}}`
+	if got != want {
+		t.Fatalf("payload=%s", got)
 	}
 }
 
-func TestFindPlayerPage_DynamicKey(t *testing.T) {
-	obj := map[string]any{
-		"loaderData": map[string]any{
-			"player_layout":                 nil,
-			"player_(series_id)/(vid)/page": playerPage(),
-		},
-	}
-	page, err := findPlayerPage(obj)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if page["vid"] != "7404780627477662745" {
-		t.Errorf("vid = %v", page["vid"])
+func TestExtractFallbackVariants(t *testing.T) {
+	root := map[string]any{"data": map[string]any{"v": map[string]any{"video_model": `{"fallback_api":{"fallback_api":"https://example.test/fallback"}}`}}}
+	fallback, model, err := extractFallback(root, "v")
+	if err != nil || fallback != "https://example.test/fallback" || model == nil {
+		t.Fatalf("fallback=%q model=%v err=%v", fallback, model, err)
 	}
 }
 
-func TestEpisodeInfoFromPage(t *testing.T) {
-	info, err := episodeInfoFromPage(playerPage(), 1, "https://hongguoduanju.com/player/1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.ID != "7404780627477662745" {
-		t.Errorf("id = %q", info.ID)
-	}
-	if info.Title != "朝阳似火 第1集" {
-		t.Errorf("title = %q", info.Title)
-	}
-	if info.Description != "一部关于复仇的短剧" {
-		t.Errorf("description = %q", info.Description)
-	}
-	if info.Thumbnail != "https://cdn.example/cover.jpg" {
-		t.Errorf("thumbnail = %q", info.Thumbnail)
-	}
-	if info.Duration != 90.976 {
-		t.Errorf("duration = %f", info.Duration)
-	}
-	if len(info.Formats) != 1 {
-		t.Fatalf("formats = %d, want 1", len(info.Formats))
-	}
-	f := info.Formats[0]
-	if f.URL != "https://cdn.example/v1.mp4" || f.Width != 720 || f.Height != 1280 {
-		t.Errorf("format = %+v", f)
-	}
-	if f.VCodec != "h264" || f.ACodec != "aac" {
-		t.Errorf("codec = %s/%s, want h264/aac", f.VCodec, f.ACodec)
+func TestExtractFallbackRejectsWrongVideo(t *testing.T) {
+	root := map[string]any{"data": map[string]any{"other": map[string]any{"video_model": `{"fallback_api":"https://example.test/wrong"}`}}}
+	if _, _, err := extractFallback(root, "wanted"); err == nil {
+		t.Fatal("expected missing requested video to be rejected")
 	}
 }
 
-func TestEpisodeInfoFromPage_NoVideo(t *testing.T) {
-	page := playerPage()
-	page["video_player_info"] = map[string]any{} // no main_url
-	_, err := episodeInfoFromPage(page, 1, "https://hongguoduanju.com/player/1")
-	if err == nil || !strings.Contains(err.Error(), "no playable video") {
-		t.Errorf("err = %v, want no-playable-video error", err)
+func TestSelectBestVariant(t *testing.T) {
+	got := selectBestVariant(map[string]any{
+		"a": map[string]any{"vheight": float64(720), "bitrate": float64(500)},
+		"b": map[string]any{"vheight": float64(1080), "bitrate": float64(800)},
+		"c": map[string]any{"vheight": float64(1080), "bitrate": float64(900)},
+	})
+	if extractorInt(got["bitrate"]) != 900 {
+		t.Fatalf("best=%v", got)
 	}
+}
+
+func testContext(client *http.Client) *extractor.Context {
+	return &extractor.Context{Client: client, Headers: map[string]string{}}
+}
+func extractorInt(v any) int {
+	if n, ok := v.(float64); ok {
+		return int(n)
+	}
+	return 0
 }
