@@ -150,6 +150,22 @@ func selectBestAlias(formats, order []extractor.Format, tok string) ([]extractor
 			return []extractor.Format{*c}, true
 		}
 	}
+	// Last resort: an unclassified format (HLS/DASH manifests and direct media
+	// URLs carry no vcodec/acodec at extraction time). yt-dlp treats such a
+	// single-format result as matching any selector; do the same.
+	if order != nil {
+		if c := bestByOrder(order, formats, kindAny); c != nil {
+			return []extractor.Format{*c}, true
+		}
+	} else if isWorst {
+		if c := pickWorst(formats, kindAny); c != nil {
+			return []extractor.Format{*c}, true
+		}
+	} else {
+		if c := pickBest(formats, kindAny); c != nil {
+			return []extractor.Format{*c}, true
+		}
+	}
 	return nil, true
 }
 
