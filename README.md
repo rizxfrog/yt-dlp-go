@@ -48,6 +48,8 @@ extractor/              Info/Format types, Extractor interface, registry, helper
   /hongguo              红果短剧 (short links/detail/player, signed fqnovel API + CENC)
   /acast                Acast (JSON-API pattern)
   /cg51                 51cg1.com archives (HLS player, cleaned article body, thumbnails)
+  /pornhub              PornHub + Thumbzilla (flashvars mediaDefinitions, JS-var fallbacks,
+                        /video/get_media expansion, playlists/users/channels)
   /generic              Direct media-URL fallback
 ```
 
@@ -156,7 +158,16 @@ export DUANJU_INSTALL_ID=6745102938476510293
   `GUOZI_SRC`, or plugin directory is required), **51吃瓜网/51cg1** (`51cg1.com/archives/<id>`:
   HLS player config scraped from the served HTML with per-format Origin/Referer
   headers, article title, DOM-cleaned description, and inline data:-URI preview
-  thumbnails), Acast, and a direct-URL generic fallback.
+  thumbnails), **PornHub** (ported from yt-dlp's `pornhub.py`: the
+  `flashvars_<digits>` object's `mediaDefinitions` is the primary format source,
+  with the `media_*`/`quality_*`/`qualityItems_*` JS-variable form, the
+  TV-platform `mediastring` and the `downloadBtn` anchors as fallbacks;
+  `/video/get_media` endpoints are expanded one hop; `.mpd`/`.m3u8`/progressive
+  URLs are routed to the DASH/HLS/HTTP downloaders with the `Origin`/`Referer`
+  headers every manifest request needs to avoid HTTP 412. Also covers
+  `pornhubpremium`, the `.net`/`.org` mirrors, the Tor mirror, and the user /
+  channel / model / pornstar / upload / playlist / paginated-listing pages),
+  Acast, and a direct-URL generic fallback.
 - **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
   `utls`, reproducing the impersonated browser's ClientHello.
 
