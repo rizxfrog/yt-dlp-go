@@ -47,6 +47,7 @@ extractor/              Info/Format types, Extractor interface, registry, helper
   /douyin               Douyin 抖音 (aweme/v1/web/aweme/detail + no-watermark preference)
   /hongguo              红果短剧 (short links/detail/player, signed fqnovel API + CENC)
   /acast                Acast (JSON-API pattern)
+  /cg51                 51cg1.com archives (HLS player, cleaned article body, thumbnails)
   /generic              Direct media-URL fallback
 ```
 
@@ -152,8 +153,10 @@ export DUANJU_INSTALL_ID=6745102938476510293
   format; core then uses ffmpeg to decrypt atomically before every other media
   postprocessor. `DUANJU_DEVICE_ID` and `DUANJU_INSTALL_ID` may provide stable
   19-digit identities; otherwise one pair is generated per process. No Python,
-  `GUOZI_SRC`, or plugin directory is required), Acast, and a direct-URL
-  generic fallback.
+  `GUOZI_SRC`, or plugin directory is required), **51吃瓜网/51cg1** (`51cg1.com/archives/<id>`:
+  HLS player config scraped from the served HTML with per-format Origin/Referer
+  headers, article title, DOM-cleaned description, and inline data:-URI preview
+  thumbnails), Acast, and a direct-URL generic fallback.
 - **TLS impersonation (optional)**: `-tags utls` swaps the TLS dialer for
   `utls`, reproducing the impersonated browser's ClientHello.
 

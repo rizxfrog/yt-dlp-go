@@ -22,6 +22,7 @@ import (
 	"yt-dlp-go/extractor"
 	_ "yt-dlp-go/extractor/acast"
 	_ "yt-dlp-go/extractor/bilibili"
+	_ "yt-dlp-go/extractor/cg51"
 	_ "yt-dlp-go/extractor/douyin"
 	_ "yt-dlp-go/extractor/generic"
 	_ "yt-dlp-go/extractor/hongguo"
@@ -491,8 +492,35 @@ func fileExists(p string) bool {
 	return err == nil
 }
 
-// writeThumbnail downloads the cover image to base + a suitable extension.
+// writeThumbnail saves the cover image next to the media file. A data: URI is
+// decoded locally (some sites only expose inline images); anything else is
+// downloaded.
 func (y *YoutubeDL) writeThumbnail(thumbURL, base string) error {
+	if strings.HasPrefix(thumbURL, "data:") {
+		return writeInlineThumbnail(thumbURL, base)
+	}
+	return y.downloadThumbnail(thumbURL, base)
+}
+
+// writeInlineThumbnail decodes a data: URI and writes it with an extension
+// derived from its media type.
+func writeInlineThumbnail(thumbURL, base string) error {
+	du, err := extractor.DecodeDataURL(thumbURL)
+	if err != nil {
+		return err
+	}
+	if len(du.Data) == 0 {
+		return fmt.Errorf("empty inline thumbnail")
+	}
+	ext := du.Ext
+	if ext == "" {
+		ext = "jpg"
+	}
+	return os.WriteFile(base+"."+ext, du.Data, 0o644)
+}
+
+// downloadThumbnail fetches the cover image to base + a suitable extension.
+func (y *YoutubeDL) downloadThumbnail(thumbURL, base string) error {
 	req, err := http.NewRequest(http.MethodGet, thumbURL, nil)
 	if err != nil {
 		return err

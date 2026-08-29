@@ -181,3 +181,18 @@ func TestDownloadURLs_Concurrency(t *testing.T) {
 		t.Errorf("expected both OK urls downloaded (2 files), got %d", got)
 	}
 }
+
+func TestWriteInlineThumbnail(t *testing.T) {
+	dir := t.TempDir()
+	base := dir + "/video"
+	if err := writeInlineThumbnail("data:image/png;base64,aGVsbG8=", base); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(base + ".png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Errorf("thumbnail content = %q", data)
+	}
+}

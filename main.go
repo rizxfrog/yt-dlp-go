@@ -55,7 +55,7 @@ func printHelp() {
 
 Usage: yt-dlp-go [options] URL [URL...]
 
-Supported sites: YouTube, Bilibili, TikTok, Douyin, 红果短剧 (hongguoduanju), Acast, and direct media URLs.
+Supported sites: YouTube, Bilibili, TikTok, Douyin, 红果短剧 (hongguoduanju), 51吃瓜网 (51cg1), Acast, and direct media URLs.
 
 Options (subset of yt-dlp):
   -f, --format FMT          format selector (best, worst, bestvideo+bestaudio, itag, [filter])

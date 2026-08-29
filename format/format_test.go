@@ -50,6 +50,30 @@ func TestSelect_Best(t *testing.T) {
 	}
 }
 
+func TestSelect_BestUnclassifiedFormat(t *testing.T) {
+	// HLS/DASH manifests and direct-URL formats carry no vcodec/acodec at
+	// extraction time; "best" must still match them (yt-dlp behaviour).
+	fs := []extractor.Format{{FormatID: "hls", URL: "https://cdn.example.com/v.m3u8", Protocol: "m3u8_native", Ext: "m3u8"}}
+	g, err := Select(fs, "best")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(g); !reflect.DeepEqual(got, [][]string{{"hls"}}) {
+		t.Fatalf("best unclassified = %v, want [[hls]]", got)
+	}
+}
+
+func TestSelect_BestUnclassifiedWorst(t *testing.T) {
+	fs := []extractor.Format{{FormatID: "hls", URL: "https://cdn.example.com/v.m3u8", Protocol: "m3u8_native", Ext: "m3u8"}}
+	g, err := Select(fs, "worst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(g); !reflect.DeepEqual(got, [][]string{{"hls"}}) {
+		t.Fatalf("worst unclassified = %v, want [[hls]]", got)
+	}
+}
+
 func TestSelect_BestVideo(t *testing.T) {
 	g, err := Select(sampleFormats(), "bestvideo")
 	if err != nil {
