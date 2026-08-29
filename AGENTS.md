@@ -8,7 +8,7 @@ Go module `yt-dlp-go` — an independent Go reimplementation of the yt-dlp engin
 - `core/` — `YoutubeDL` orchestrator (`Download`, `DownloadURLs`); extract → select → download → postprocess.
 - `options/` — `Options` struct and yt-dlp-flavoured flag parser.
 - `network/` — `*http.Client` factory (headers, proxy, cookies, impersonation); `transport_utls.go` is `-tags utls` only, `transport_stdlib.go` the default.
-- `extractor/` — `Info`/`Format` types, `Extractor` interface, registry, shared helpers, `jseval.go` (goja JS evaluator), `datauri.go` (data: URI decoding). One subpackage per site: `youtube/`, `bilibili/`, `tiktok/`, `douyin/`, `hongguo/`, `cg51/`, `acast/`, `generic/`.
+- `extractor/` — `Info`/`Format` types, `Extractor` interface, registry, shared helpers, `jseval.go` (goja JS evaluator), `datauri.go` (data: URI decoding). One subpackage per site: `youtube/`, `bilibili/`, `tiktok/`, `douyin/`, `hongguo/`, `cg51/`, `pornhub/`, `acast/`, `generic/`. A new site's subpackage must also be blank-imported in `core/core.go` so its `init()` registers it.
 - `format/`, `output/`, `downloader/`, `postprocessor/`, `sponsorblock/` — `-f` grammar, `-o` templates, HTTP/HLS/DASH transfer, ffmpeg post-processing, SponsorBlock.
 - `scripts/crosscheck.py` — regenerates `extractor/testdata/realistic_player.expected.json`.
 - `PLAN.md`, `docs/使用手册.md` — roadmap and user manual (Chinese).
